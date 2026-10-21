@@ -10,6 +10,11 @@ const config = require('./env');
 // === in the authorization checks.
 types.setTypeParser(types.builtins.INT8, (value) => Number(value));
 
+// A DATE column is a calendar date without a time zone. The driver would turn
+// it into a local midnight Date object, which shifts the day for anybody not
+// in UTC, so the raw YYYY-MM-DD text is returned instead.
+types.setTypeParser(types.builtins.DATE, (value) => value);
+
 const pool = new Pool({
   connectionString: config.databaseUrl,
   max: 10,

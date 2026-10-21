@@ -46,6 +46,44 @@ See §5.5.
 
 ---
 
+## Status addendum (2026-10-21, after the teams and tasks milestones)
+
+**This section supersedes the earlier addenda and the scoreboard in §10 for the requirements it
+lists.** The audit of the starting point stays on record above.
+
+| ID | Was | Now | Evidence |
+|---|---|---|---|
+| REQ-02 | MISSING | **VERIFIED** | `server/src/modules/teams/` and `client/src/pages/TeamsPage.jsx`; 25 tests over create, read, update, delete and permissions |
+| REQ-03 | MISSING | **VERIFIED** | `server/src/modules/teams/team.service.js`; add, list and remove members, duplicates rejected, unknown users rejected |
+| REQ-04 | MISSING | **VERIFIED** | `server/src/modules/tasks/`; 21 tests over task CRUD, assignment and the mutation policy |
+| REQ-05 | MISSING | **VERIFIED** | `GET /api/tasks?teamId=&assigneeId=&status=&search=`; the filters combine with each other and with the team access of the caller |
+| REQ-08 | MISSING | **VERIFIED** | `client/src/pages/DashboardPage.jsx`; team list, task list, filters, loading, empty and error states |
+| REQ-09 | MISSING | **VERIFIED** | `client/src/components/tasks/TaskModal.jsx`; one dialog for create and edit, with the assignee limited to the members of the selected team |
+| REQ-10 | MISSING | **VERIFIED** | `client/src/components/tasks/TaskFilters.jsx`; search, team, assignee and status filters |
+| REQ-11 | MISSING | **PARTIAL** | The layout was checked in a real browser at 375 px and 1280 px without horizontal overflow; no automated accessibility audit has been run yet |
+| REQ-13 | MISSING | **VERIFIED** | `/api/auth`, `/api/teams` and `/api/tasks` are complete REST resources |
+| REQ-14 | MISSING | **VERIFIED** | Every route of the three resources validates body, path and query parameters |
+| REQ-20 | PARTIAL | **PARTIAL** | Real feature branches, commits and pull requests exist and are merged; the deployment and submission steps are still open |
+| REQ-21 | PARTIAL | **VERIFIED** | `requireTeamMember`, `requireTeamOwner`, `requireTaskAccess` and `requireTaskEditor`; cross-team access is denied with 404 and checked by tests |
+| REQ-22 | PARTIAL | **VERIFIED** | Validation and parameterised SQL on every route, including the search filters |
+| REQ-24 | BROKEN | **VERIFIED** | The frontend and the backend run together; 70 tests pass, the client lints and builds, and the flows were checked in a browser |
+| REQ-25 | PARTIAL | **VERIFIED** | The README now lists the commands that were run in this repository |
+| BONUS-02 | MISSING | **VERIFIED** | Owner and member roles with server side permission checks on teams and tasks |
+
+Unchanged and still outstanding: REQ-19, REQ-26, REQ-27 (the GCP deployment and the submission),
+and the optional BONUS-01 (due date reminders) and BONUS-03 (email invite stub).
+
+Two defects were found and fixed while the teams and tasks milestones were built:
+
+- The team and task routes shared one `express-validator` chain between the create and the update
+  route. The `optional()` modifier of the update route therefore also applied to the create route,
+  so a missing team name or task title reached the database and produced a 500 instead of a
+  validation error. Each field is now described by a factory that returns its own chain.
+- A date column was returned as a JavaScript `Date` in the local time zone, which could shift a
+  due date by a day. The driver now returns the raw `YYYY-MM-DD` text for date columns.
+
+---
+
 ## 0. Headline finding
 
 **The application is a scaffold, not an implementation.**

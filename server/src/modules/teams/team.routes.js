@@ -10,27 +10,40 @@ const controller = require('./team.controller');
 
 const router = express.Router();
 
-const teamIdField = param('teamId')
-  .isInt({ min: 1 })
-  .withMessage('The team id must be a positive integer')
-  .toInt();
+// Every field is described by a factory, because an express-validator chain is
+// a mutable object: sharing one instance between two routes would leak the
+// modifiers of one route into the other. The name of a team is required when
+// a team is created and optional when it is updated.
 
-const nameField = body('name')
-  .isString()
-  .withMessage('A team name is required')
-  .bail()
-  .trim()
-  .isLength({ min: 1, max: 120 })
-  .withMessage('The team name must be between 1 and 120 characters');
+const teamIdField = () =>
+  param('teamId')
+    .isInt({ min: 1 })
+    .withMessage('The team id must be a positive integer')
+    .toInt();
 
-const descriptionField = body('description')
-  .optional()
-  .isString()
-  .withMessage('The description must be text')
-  .bail()
-  .trim()
-  .isLength({ max: 2000 })
-  .withMessage('The description must be at most 2000 characters');
+const nameField = (optional = false) => {
+  const field = body('name');
+  if (optional) field.optional();
+  return field
+    .isString()
+    .withMessage('A team name is required')
+    .bail()
+    .trim()
+    .isLength({ min: 1, max: 120 })
+    .withMessage('The team name must be between 1 and 120 characters');
+};
+
+const descriptionField = (optional = false) => {
+  const field = body('description');
+  if (optional) field.optional();
+  return field
+    .isString()
+    .withMessage('The description must be text')
+    .bail()
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('The description must be at most 2000 characters');
+};
 
 router.use(requireAuth);
 
@@ -38,19 +51,19 @@ router.get('/', controller.listTeams);
 
 router.post(
   '/',
-  nameField,
-  descriptionField,
+  nameField(),
+  descriptionField(true),
   validate,
   controller.createTeam
 );
 
-router.get('/:teamId', teamIdField, validate, requireTeamMember, controller.getTeam);
+router.get('/:teamId', teamIdField(), validate, requireTeamMember, controller.getTeam);
 
 router.patch(
   '/:teamId',
-  teamIdField,
-  nameField.optional(),
-  descriptionField.optional(),
+  teamIdField(),
+  nameField(true),
+  descriptionField(true),
   validate,
   requireTeamMember,
   requireTeamOwner,
@@ -59,7 +72,7 @@ router.patch(
 
 router.delete(
   '/:teamId',
-  teamIdField,
+  teamIdField(),
   validate,
   requireTeamMember,
   requireTeamOwner,
@@ -68,7 +81,7 @@ router.delete(
 
 router.get(
   '/:teamId/members',
-  teamIdField,
+  teamIdField(),
   validate,
   requireTeamMember,
   controller.listMembers
@@ -76,7 +89,7 @@ router.get(
 
 router.post(
   '/:teamId/members',
-  teamIdField,
+  teamIdField(),
   body('email')
     .isString()
     .withMessage('An email address is required')
@@ -92,7 +105,7 @@ router.post(
 
 router.delete(
   '/:teamId/members/:userId',
-  teamIdField,
+  teamIdField(),
   param('userId')
     .isInt({ min: 1 })
     .withMessage('The user id must be a positive integer')
