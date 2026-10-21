@@ -370,6 +370,10 @@ test('an invalid team id is rejected as a validation error', async () => {
 test('a team name is required and bounded', async () => {
   const agent = await registerUser(OWNER);
 
+  const missing = await agent.post('/api/teams').send({ description: 'No name at all' });
+  assert.equal(missing.status, 400);
+  assert.equal(missing.body.error.code, 'VALIDATION_ERROR');
+
   const empty = await agent.post('/api/teams').send({ name: '   ' });
   assert.equal(empty.status, 400);
 
