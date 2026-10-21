@@ -90,6 +90,21 @@ function Invoke-Gcloud {
   return [pscustomobject]@{ ExitCode = $code; Output = $text }
 }
 
+function Invoke-Firebase {
+  param([Parameter(ValueFromRemainingArguments = $true)]$Arguments)
+
+  $firebase = Get-Command firebase -ErrorAction SilentlyContinue
+  if (-not $firebase) {
+    return [pscustomobject]@{ ExitCode = 1; Output = 'The Firebase CLI is not installed. Run "npm install -g firebase-tools".' }
+  }
+
+  $output = & $firebase.Source @Arguments 2>&1
+  $code = $LASTEXITCODE
+  $text = ($output | Out-String).Trim()
+
+  return [pscustomobject]@{ ExitCode = $code; Output = $text }
+}
+
 function Test-ApiEnabled {
   param([string]$Service)
 
@@ -416,9 +431,11 @@ if (-not $SkipClient) {
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw 'The client build failed.' }
 
-    $hosting = Invoke-Gcloud 'firebase' 'deploy' '--only' 'hosting' '--project' $ProjectId --non-interactive
+    $hosting = Invoke-Firebase @('deploy', '--only', 'hosting', '--project', $ProjectId, '--non-interactive')
     if ($hosting.ExitCode -ne 0) {
       Write-Warn "the hosting deployment failed: $($hosting.Output)"
+      Write-Host '   The GCP project has to be added to Firebase first:'
+      Write-Host "   https://console.firebase.google.com/project/_/add?project=$ProjectId"
     } else {
       $clientUrl = "https://$ProjectId.web.app"
       Write-Ok "the client is live at $clientUrl"
