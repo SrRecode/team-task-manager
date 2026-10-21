@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: API tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: glacier
+          POSTGRES_PASSWORD: glacier
+          POSTGRES_DB: glacier_tasks
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U glacier"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - run: npm ci
+
+      - name: Create the test database
+        run: |
+          PGPASSWORD=glacier psql -h localhost -U glacier -d postgres \
+            -c "CREATE DATABASE glacier_tasks_test"
+
+      - name: Run the test suite
+        run: npm test
+        env:
+          DATABASE_URL: postgresql://glacier:glacier@localhost:5432/glacier_tasks
+          SESSION_SECRET: ci-session-secret-that-is-never-used-in-production
+
+  client:
+    name: Client lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
