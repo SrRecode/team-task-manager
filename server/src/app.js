@@ -13,6 +13,7 @@ const { verifyOrigin } = require('./middleware/csrfOrigin');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { AppError } = require('./utils/errors');
 const authRoutes = require('./modules/auth/auth.routes');
+const teamRoutes = require('./modules/teams/team.routes');
 
 function createApp() {
   const app = express();
@@ -74,6 +75,7 @@ function createApp() {
 
   // 7. API routers
   app.use('/api/auth', authRoutes);
+  app.use('/api/teams', teamRoutes);
 
   // 8. Not found
   app.use(notFoundHandler);
