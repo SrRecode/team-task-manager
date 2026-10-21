@@ -1,0 +1,88 @@
+# Cloud Run service of the Glacier Team Task Manager API.
+#
+# Replace every placeholder before applying:
+#   PROJECT_ID   the Google Cloud project id
+#   REGION       the region of the Cloud SQL instance and the Artifact Registry
+#   INSTANCE_ID  the Cloud SQL instance id
+#
+# Apply it with:
+#   gcloud run services replace deploy/cloud-run-api.yaml --region REGION
+#
+# The service has two containers:
+#   api             the Express API from server/Dockerfile
+#   cloud-sql-proxy the Cloud SQL Auth Proxy, so the database stays private
+#                   and the API reaches it on 127.0.0.1:5432
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: glacier-api
+  labels:
+    app: glacier-api
+  annotations:
+    run.googleapis.com/launch-stage: GA
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cloudsql-instance: PROJECT_ID:REGION:INSTANCE_ID
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "3"
+    spec:
+      serviceAccountName: glacier-run@PROJECT_ID.iam.gserviceaccount.com
+      containerConcurrency: 80
+      timeoutSeconds: 60
+      containers:
+        - name: api
+          image: REGION-docker.pkg.dev/PROJECT_ID/glacier/api:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "8080"
+            # The exact origin of the deployed frontend. It is used for the
+            # CORS check and for the CSRF origin check.
+            - name: CLIENT_ORIGIN
+              value: https://PROJECT_ID.web.app
+            # The frontend and the API are different sites, so the session
+            # cookie has to be SameSite=None; Secure.
+            - name: SESSION_SAME_SITE
+              value: none
+            # The Cloud SQL Auth Proxy terminates the TLS towards Cloud SQL.
+            - name: DATABASE_SSL
+              value: "false"
+          envFrom:
+            - secretRef:
+                name: glacier-api-secrets
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 12
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 3
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+        - name: cloud-sql-proxy
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.11.4
+          args:
+            - "--port=5432"
+            - "--structured-logs"
+          securityContext:
+            runAsNonRoot: true
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
