@@ -69,6 +69,66 @@ An organization can restrict which services a project may use
 
 ---
 
+## 0.0 What this project found in the assessment environment
+
+The deployment was attempted on 21 October 2026 with the account that owns the
+assessment. The findings are written down here, because they decide which
+project the deployment can use.
+
+| Check | Result |
+|---|---|
+| Account | `sr192153@gmail.com` |
+| Project with a billing account | `electric-balm-3xjsq` (free tier roles of the organisation) |
+| Project owned by the account | `glacier-team-task-manager` (owner role, **no billing account**) |
+| `gcloud`, `docker`, `firebase-tools` | installed and working |
+| Local PostgreSQL 18, Node.js 24 | installed and working |
+
+### The two blockers
+
+**1. `electric-balm-3xjsq` cannot run the workload.**
+
+| Attempt | Error |
+|---|---|
+| `gcloud run deploy glacier-api` | `Permission 'run.services.create' denied on resource 'namespaces/electric-balm-3xjsq/services/glacier-api'` |
+| `gcloud sql instances create glacier-db --tier=db-f1-micro` | `Operation denied by org policy: customConstraints/custom.disallowCloudSqlNonDbDevSmallTiers — Cloud SQL instance tier must be db-dev-small` |
+| `gcloud sql instances create glacier-db --tier=db-dev-small` | `Invalid Tier (db-dev-small) for (ENTERPRISE) Edition` (the tier no longer exists in the Cloud SQL API) |
+| `gcloud services enable cloudbuild artifactregistry secretmanager` | `Permission denied to enable service` (`serviceusage.services.enable` is not granted) |
+
+The account only holds the three organisation roles `runSaasUserFreeTier`,
+`cloudSqlUserFreeTier` and `firebaseUserFreeTier` of the organisation
+`71994629047`. They do not contain `run.services.create`, and the
+`setIamPolicy` permission is not granted either, so the account cannot grant
+them to itself.
+
+**2. `glacier-team-task-manager` has no billing account.**
+
+| Attempt | Error |
+|---|---|
+| `gcloud services enable run.googleapis.com` | `Billing must be enabled for activation of service(s) ...` |
+| `gcloud sql instances create glacier-db` | `the billing account is not in good standing; therefore no new instance can be created` |
+| `gcloud billing projects link glacier-team-task-manager --billing-account=01975A-AA50D4-147228` | `Permission 'billing.resourceAssociations.create' denied` |
+
+Firebase Hosting is the exception: it works without a billing account, so the
+frontend of the project is live on
+<https://glacier-team-task-manager.web.app>.
+
+### The one action that unblocks the whole deployment
+
+Link a billing account to `glacier-team-task-manager`. Everything else is
+already in place: the account is the owner of the project, so it may enable
+the APIs, create the Artifact Registry repository, the Cloud SQL instance and
+the Cloud Run service.
+
+<https://console.cloud.google.com/billing/linkedaccount?project=glacier-team-task-manager>
+
+After that, one command deploys the API, the database and the client:
+
+```powershell
+.\deploy\deploy.ps1 -ProjectId glacier-team-task-manager -Region asia-south1
+```
+
+---
+
 ## 0.1 Prerequisites
 
 | Requirement | How to get it |

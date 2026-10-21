@@ -1,4 +1,16 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+/**
+ * The base URL of the API.
+ *
+ * In production the client is served by Firebase Hosting, and Hosting forwards
+ * every call of `/api/**` to the Cloud Run service (see client/firebase.json).
+ * The call stays on the same origin, so the session cookie is a first-party
+ * cookie and no CORS handshake is needed.
+ *
+ * `VITE_API_URL` overrides that, which is what the local development and a
+ * deployment on another host use.
+ */
+const API_URL =
+  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');
 
 /**
  * An error returned by the API. Carries the status code and the machine
