@@ -58,8 +58,8 @@ and role-based access — are implemented, as is the third one (email invitation
 
 ## 2. Implementation status
 
-Everything below was checked against the source code on **21 October 2026** on the branch
-`fix/assessment-compliance`.
+Everything below was checked against the source code on **21 October 2026**. The code is the
+content of `main`; the last milestone was merged from the branch `fix/assessment-compliance`.
 
 | Area | Status | Evidence |
 |---|---|---|
@@ -832,15 +832,17 @@ described in [docs/GIT_WORKFLOW.md](docs/GIT_WORKFLOW.md).
 | `feat/deployment` | the GCP deployment configuration |
 | `feature/deployment-frontend` | the client deployment and the same-origin configuration |
 | `docs/assessment-plan` | the documentation set of the assessment |
-| `fix/assessment-compliance` | the current branch: client-side validation, confirmation messages, a safer API client, the mobile navigation and the deployment verification |
+| `fix/assessment-compliance` | the last milestone: client-side validation, confirmation messages, a safer API client, the mobile navigation, the deployment verification and the rewritten README — merged into `main` |
 
 The pull-request history is visible in the commit history of the repository: nine merge commits
 (`Merge pull request #1` … `#9`) from `feat/teams`, `docs/assessment-plan`, `feat/tasks`,
 `feat/bonuses`, `feat/deployment` and `feature/deployment-frontend`.
 
-**Current state:** the branch `fix/assessment-compliance` is **seven commits ahead of `main`**
-and has not been merged into it. The working tree contains no uncommitted changes to tracked
-files. Every pull request is expected to use the template in
+**Current state:** `main` contains every milestone. The branch `fix/assessment-compliance` was
+merged into it with the merge commit `a103977` on 21 October 2026 — locally, not through a
+pull request on GitHub, so the merge is not listed among the numbered pull requests above. The
+working tree contains no uncommitted changes to tracked files. Every pull request is expected to
+use the template in
 [.github/pull_request_template.md](.github/pull_request_template.md).
 
 ---
@@ -971,7 +973,7 @@ deployment above.
 | API on Cloud Run | — | **no** — blocked by the missing billing account |
 | Database on Cloud SQL | — | **no** — blocked by the missing billing account |
 
-The deployed frontend serves the bundle of the branch `fix/assessment-compliance` with the API
+The deployed frontend serves the bundle built from the code that is now in `main`, with the API
 address compiled in. After a new deployment, a browser tab that was already open keeps running
 the previous bundle and therefore the previous API address — a hard reload (`Ctrl+Shift+R`) or a
 private window fixes that.
@@ -1039,7 +1041,7 @@ Every file below exists in the repository.
 - [x] The Git history contains real feature branches and pull requests (#1 … #9).
 - [x] The environment variables are documented and contain no secrets.
 - [ ] The API and the database run on Cloud Run and Cloud SQL — **blocked by the missing billing account**; the prepared configuration and the exact blocker are documented in [§22.3](#223-deployment-of-the-api-and-the-database-prepared-but-blocked).
-- [ ] The current branch `fix/assessment-compliance` is merged into `main` through a pull request.
+- [x] The branch `fix/assessment-compliance` is merged into `main` (merge commit `a103977`); every milestone is part of the default branch.
 
 Links for the submission:
 
@@ -1068,14 +1070,16 @@ placeholders.
 4. Invitations are database records; no email is sent.
 5. The CSRF protection is an origin check instead of a token.
 6. The task list has no pagination; a team with a very large number of tasks loads all of them.
-7. The current branch is not merged into `main` yet.
+7. The last milestone was merged into `main` with a local merge commit, so it does not appear as
+   a numbered pull request in the GitHub history the way the previous milestones do.
 
 **Next steps**
 
 1. Link a billing account to the GCP project and run `.\deploy\deploy.ps1` to move the API to
    Cloud Run and the database to Cloud SQL; then rebuild the client with the `run.app` address
    and deploy it again.
-2. Merge `fix/assessment-compliance` into `main` through a pull request.
+2. Open a pull request for the remaining documentation work, so that every future change follows
+   the pull-request workflow of the earlier milestones.
 3. Add rate limiting (`express-rate-limit`) and a password reset flow.
 4. Replace the invitation stub with a real transactional mail provider.
 5. Add pagination and server-side sorting to the task list, and a Swagger/OpenAPI document
