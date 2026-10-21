@@ -21,6 +21,12 @@ export default function AppShell({ children }) {
 
           <nav className="flex items-center gap-4">
             <Link
+              to="/"
+              className="text-sm font-medium text-ink-muted underline underline-offset-4 hover:text-ink"
+            >
+              Dashboard
+            </Link>
+            <Link
               to="/teams"
               className="text-sm font-medium text-ink-muted underline underline-offset-4 hover:text-ink"
             >
