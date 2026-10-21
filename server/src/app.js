@@ -14,6 +14,7 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { AppError } = require('./utils/errors');
 const authRoutes = require('./modules/auth/auth.routes');
 const teamRoutes = require('./modules/teams/team.routes');
+const taskRoutes = require('./modules/tasks/task.routes');
 
 function createApp() {
   const app = express();
@@ -76,6 +77,7 @@ function createApp() {
   // 7. API routers
   app.use('/api/auth', authRoutes);
   app.use('/api/teams', teamRoutes);
+  app.use('/api/tasks', taskRoutes);
 
   // 8. Not found
   app.use(notFoundHandler);
