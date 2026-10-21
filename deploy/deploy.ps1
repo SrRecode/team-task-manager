@@ -213,7 +213,9 @@ if (-not $firebase) {
   $blocking += 'the Firebase CLI is not installed. Run "npm install -g firebase-tools".'
 } else {
   $firebaseAuth = Invoke-Firebase 'projects:list' '--project' $ProjectId '--non-interactive'
-  if ($firebaseAuth.ExitCode -ne 0) {
+  # The Firebase CLI can end with a non-zero exit code on Windows, even when
+  # the command worked, so the output decides.
+  if ($firebaseAuth.Output -match 'Invalid refresh token|requires authentication|not authenticated|401 Unauthorized') {
     $blocking += @"
 the Firebase CLI is not signed in for this account. Run "firebase login" once, then run
 this script again. A stale token is the usual reason for this failure.
@@ -301,7 +303,22 @@ $instanceExists = $sqlInstances.Output -match [regex]::Escape($InstanceId)
 # A private IP needs the VPC peering. When the project does not allow it, the
 # instance gets a public IP and stays behind the Cloud SQL Auth Proxy.
 $private = $enabled['servicenetworking.googleapis.com']
-$flags = if ($private) { @('--no-assign-ip') } else { @('--assign-ip') }
+$flags = @('--assign-ip')
+
+if ($private) {
+  Write-Host '   reserving the private network range for Cloud SQL'
+  $peering = Invoke-Gcloud 'services' 'vpc-peerings' 'connect' `
+    '--service=servicenetworking.googleapis.com' '--range=10.10.0.0/16' `
+    "--project=$ProjectId" --quiet
+
+  if ($peering.ExitCode -eq 0) {
+    $flags = @('--no-assign-ip')
+    Write-Ok 'the private range 10.10.0.0/16 is reserved, the instance gets a private IP'
+  } else {
+    Write-Warn "the private range could not be reserved: $($peering.Output.Split("`n")[0])"
+    Write-Warn 'the instance gets a public IP and stays behind the Cloud SQL Auth Proxy'
+  }
+}
 
 if (-not $instanceExists) {
   Write-Host '   creating the instance, this takes a few minutes'
@@ -374,6 +391,11 @@ if ($users.Output -notmatch [regex]::Escape($AppUser)) {
   Write-Ok "the password of $AppUser was reset"
 }
 
+# The API reaches the database on 127.0.0.1:5432, the Cloud SQL Auth Proxy of
+# the service does the TLS towards the instance. That works with a private and
+# with a public instance address.
+$databaseUrl = "postgresql://${AppUser}:${appPassword}@127.0.0.1:5432/${DatabaseName}"
+
 # ---------------------------------------------------------------------------
 # 4. Secrets
 # ---------------------------------------------------------------------------
@@ -390,8 +412,10 @@ if ($useSecretManager) {
     Write-Ok "the secret $SecretName was created"
   }
 
-  "session-secret=$sessionSecret" | Invoke-Gcloud 'secrets' 'versions' 'add' $SecretName --data-file=- --project $ProjectId | Out-Null
-  Write-Ok 'the session secret was written to Secret Manager'
+  # The API reads the database URL and the session secret from this secret.
+  $secretPayload = "DATABASE_URL=$databaseUrl`nSESSION_SECRET=$sessionSecret"
+  $secretPayload | Invoke-Gcloud 'secrets' 'versions' 'add' $SecretName --data-file=- --project $ProjectId | Out-Null
+  Write-Ok 'the database URL and the session secret were written to Secret Manager'
 
   Invoke-Gcloud 'projects' 'add-iam-policy-binding' $ProjectId `
     --member="serviceAccount:$accountEmail" --role=roles/secretmanager.secretAccessor --quiet | Out-Null
@@ -475,11 +499,6 @@ try {
 
 Write-Step 'Deploying the API to Cloud Run'
 
-# The API reaches the database on 127.0.0.1:5432, the Cloud SQL Auth Proxy of
-# the service does the TLS towards the instance. That works with a private and
-# with a public instance address.
-$databaseUrl = "postgresql://${AppUser}:${appPassword}@127.0.0.1:5432/${DatabaseName}"
-
 $template = Get-Content -LiteralPath "$RepoRoot\deploy\cloud-run-api.yaml" -Raw
 $rendered = $template.
   Replace('PROJECT_ID', $ProjectId).
@@ -488,8 +507,9 @@ $rendered = $template.
   Replace('glacier-run@PROJECT_ID.iam.gserviceaccount.com', $accountEmail)
 
 if (-not $useSecretManager) {
-  $rendered = $rendered -replace "(?ms)^\s*- name: DATABASE_URL.*?secretKeyRef:.*?\n\s+key: database-url\n", ''
-  $rendered = $rendered -replace "(?ms)^\s*- name: SESSION_SECRET.*?secretKeyRef:.*?\n\s+key: session-secret\n", ''
+  # Without Secret Manager the two secrets are set as environment variables of
+  # the service, and the reference to the secret is removed from the template.
+  $rendered = $rendered -replace "(?ms)^\s*envFrom:\s*\n\s*- secretRef:\s*\n\s*name: $SecretName\s*\n", ''
   $rendered = $rendered.Replace(
     '        - name: PORT',
     "        - name: DATABASE_URL`n          value: `"$databaseUrl`"`n        - name: SESSION_SECRET`n          value: `"$sessionSecret`"`n        - name: PORT"
@@ -526,7 +546,7 @@ if (-not $SkipClient) {
   Write-Step 'Deploying the client to Firebase Hosting'
 
   $firebaseProject = Invoke-Firebase 'projects:list' '--project' $ProjectId '--non-interactive'
-  if ($firebaseProject.Output -notmatch [regex]::Escape($ProjectId)) {
+  if ($firebaseProject.Output -match 'No projects found') {
     Write-Host '   adding the Firebase resources to the project'
     Invoke-Firebase 'projects:addfirebase' $ProjectId '--non-interactive' | Out-Null
   }
@@ -547,7 +567,7 @@ if (-not $SkipClient) {
     if ($LASTEXITCODE -ne 0) { throw 'The client build failed.' }
 
     $hosting = Invoke-Firebase 'deploy' '--only', 'hosting', '--project', $ProjectId, '--non-interactive'
-    if ($hosting.ExitCode -ne 0) {
+    if ($hosting.Output -notmatch 'release complete|Hosting URL') {
       Write-Warn "the hosting deployment failed: $($hosting.Output)"
       Write-Host '   The GCP project has to be added to Firebase first:'
       Write-Host "   https://console.firebase.google.com/project/_/add?project=$ProjectId"
