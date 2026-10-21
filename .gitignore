@@ -17,3 +17,7 @@ Desktop.ini
 *.bak
 *.sqlite
 *.sqlite3
+
+# Firebase CLI cache
+.firebase/
+firebase-debug.log

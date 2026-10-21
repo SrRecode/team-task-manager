@@ -18,13 +18,22 @@ merged through a pull request. The status below reflects what is merged into
 - [x] Bonus features: due-date reminders (BONUS-01), owner/member roles
       (BONUS-02), email invitation stub (BONUS-03)
 - [x] GitHub feature branches and PR history present
-- [ ] GCP deployment verified — see [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
+- [x] Frontend deployed on GCP (Firebase Hosting) — <https://glacier-team-task-manager.web.app>
+- [ ] API and database deployed on GCP — blocked by the permissions of the
+      assessment account, see [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
 - [ ] Submission links ready — the repository link is verified, the deployed URL
       follows the deployment
 
-The remaining open items are the steps that need access to a Google Cloud
-project; they are described in [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
-and in [the submission message](docs/SUBMISSION_MESSAGE.md).
+The deployment of the API and of the Cloud SQL database is the only open item.
+The account of the assessment may not create a Cloud Run service and may not
+create a Cloud SQL instance in the free tier project, and the project it owns
+has no billing account. The findings and the single action that unblocks the
+deployment are in [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0.
+The deployment itself is one command:
+
+```powershell
+.\deploy\deploy.ps1 -ProjectId glacier-team-task-manager -Region asia-south1
+```
 
 ## Documentation map
 
@@ -209,6 +218,14 @@ packaged by `server/Dockerfile`.
 
 The project needs a billing account, and the account needs the permission to
 create the billable resources.
+
+The frontend of this project is already deployed on Firebase Hosting:
+<https://glacier-team-task-manager.web.app>. It calls the API on its own
+origin (`/api`), and Firebase Hosting forwards the calls to the Cloud Run
+service, so the session cookie stays a first-party cookie. The API and the
+Cloud SQL database are the part that is still missing; the exact blocker and
+the single action that solves it are in
+[the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0.
 
 The assessment requires a deployed version on GCP. Verify current pricing and
 billing requirements before creating resources; GCP services may incur charges.

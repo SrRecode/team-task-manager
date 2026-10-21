@@ -5,7 +5,7 @@
 .DESCRIPTION
   Runs the whole deployment of the assessment in one go:
 
-    1. checks the environment (gcloud, Docker, the billing account of the project)
+    1. checks the environment (gcloud, Docker, the billing account, the APIs)
     2. enables the APIs the project needs
     3. creates the Artifact Registry repository and builds the API image
     4. creates the service account of the API and its IAM bindings
@@ -19,7 +19,9 @@
   Every step is idempotent: a resource that already exists is left alone.
 
 .PARAMETER ProjectId
-  The Google Cloud project that hosts the deployment.
+  The Google Cloud project that hosts the deployment. It needs a billing
+  account, otherwise Cloud Run, Cloud SQL and Artifact Registry cannot be
+  created.
 
 .PARAMETER Region
   The region of the Cloud SQL instance, the Artifact Registry repository and the
@@ -27,6 +29,9 @@
 
 .PARAMETER Check
   Only run the preflight checks and print what is missing. Nothing is created.
+
+.PARAMETER SkipClient
+  Only deploy the API, not the frontend.
 
 .EXAMPLE
   .\deploy.ps1 -Check
@@ -61,6 +66,10 @@ function Write-Ok($message) {
 
 function Write-Warn($message) {
   Write-Host "   !  $message" -ForegroundColor Yellow
+}
+
+function Write-Fail($message) {
+  Write-Host "   x  $message" -ForegroundColor Red
 }
 
 function Get-Gcloud {
@@ -158,25 +167,56 @@ $docker = Get-Command docker -ErrorAction SilentlyContinue
 if ($docker) {
   Write-Ok "docker: $(& docker --version)"
 } else {
-  Write-Warn 'Docker is not installed. The image can still be built by Cloud Build if that API is allowed.'
+  Write-Warn 'Docker is not installed. The image will be built by Cloud Build instead.'
 }
+
+$blocking = @()
 
 $billing = Invoke-Gcloud 'billing' 'projects' 'describe' $ProjectId '--format=value(billingEnabled)'
 if ($billing.ExitCode -ne 0) {
-  throw "The project $ProjectId does not exist, or the account cannot read it."
-}
-
-if ($billing.Output.Trim() -ne 'True') {
-  throw @"
-The project $ProjectId has no billing account.
-
-Cloud Run, Cloud SQL and Artifact Registry cannot be created without one. Open
+  $blocking += "the project $ProjectId does not exist, or the account cannot read it"
+} elseif ($billing.Output.Trim() -ne 'True') {
+  $blocking += @"
+the project $ProjectId has no billing account. Cloud Run, Cloud SQL and Artifact Registry
+cannot be created without one. Open
 https://console.cloud.google.com/billing/linkedaccount?project=$ProjectId
 and link a billing account, then run this script again.
 "@
+} else {
+  Write-Ok "the project $ProjectId has a billing account"
 }
 
-Write-Ok "the project $ProjectId has a billing account"
+$firebase = Get-Command firebase -ErrorAction SilentlyContinue
+if (-not $firebase) {
+  $blocking += 'the Firebase CLI is not installed. Run "npm install -g firebase-tools".'
+} else {
+  $firebaseAuth = Invoke-Firebase 'projects:list' '--project' $ProjectId '--non-interactive'
+  if ($firebaseAuth.ExitCode -ne 0) {
+    $blocking += @"
+the Firebase CLI is not signed in for this account. Run "firebase login" once, then run
+this script again. A stale token is the usual reason for this failure.
+"@
+  } else {
+    Write-Ok 'the Firebase CLI is signed in'
+  }
+}
+
+foreach ($api in @('run.googleapis.com', 'sqladmin.googleapis.com', 'artifactregistry.googleapis.com', 'firebasehosting.googleapis.com')) {
+  if (Test-ApiEnabled $api) {
+    Write-Ok "$api is enabled"
+  } else {
+    Write-Warn "$api is not enabled yet, the script enables it when the project allows it"
+  }
+}
+
+if ($blocking.Count -gt 0) {
+  Write-Host ''
+  Write-Host 'The deployment cannot start yet:' -ForegroundColor Red
+  foreach ($item in $blocking) { Write-Host "   - $item" -ForegroundColor Red }
+  Write-Host ''
+  Write-Host 'Everything else (the code, the tests, the deployment artifacts) is ready.' -ForegroundColor Yellow
+  exit 1
+}
 
 if ($Check) {
   Write-Step 'Preflight finished'
@@ -236,40 +276,64 @@ Write-Step 'Preparing Cloud SQL'
 $sqlInstances = Invoke-Gcloud 'sql' 'instances' 'list' '--project' $ProjectId '--format=value(name)'
 $instanceExists = $sqlInstances.Output -match [regex]::Escape($InstanceId)
 
+# A private IP needs the VPC peering. When the project does not allow it, the
+# instance gets a public IP and stays behind the Cloud SQL Auth Proxy.
+$private = $enabled['servicenetworking.googleapis.com']
+$flags = if ($private) { @('--no-assign-ip') } else { @('--assign-ip') }
+
 if (-not $instanceExists) {
   Write-Host '   creating the instance, this takes a few minutes'
 
-  # A private IP needs the VPC peering. When the project does not allow it, the
-  # instance gets a public IP and stays behind the Cloud SQL Auth Proxy.
-  $private = $enabled['servicenetworking.googleapis.com']
-  $flags = if ($private) { @('--no-assign-ip') } else { @('--assign-ip') }
+  # The organisation can restrict the machine type of the instance. The script
+  # tries the small shapes first, because the free tier of the organisation is
+  # usually the smallest one.
+  $attempts = @(
+    @{ Tier = 'db-f1-micro'; Cpu = $null; Memory = $null },
+    @{ Tier = 'db-g1-small'; Cpu = $null; Memory = $null },
+    @{ Tier = 'db-custom-1-3840'; Cpu = $null; Memory = $null }
+  )
 
-  $result = Invoke-Gcloud 'sql' 'instances' 'create' $InstanceId `
-    --database-version=POSTGRES_16 --cpu=1 --memory=2GiB --region=$Region `
-    --availability-type=REGIONAL --edition=ENTERPRISE `
-    @flags --project $ProjectId --quiet
-
-  if ($result.ExitCode -ne 0) {
-    Write-Warn "the standard machine type was refused, retrying with the free tier shape"
+  $created = $false
+  foreach ($attempt in $attempts) {
     $result = Invoke-Gcloud 'sql' 'instances' 'create' $InstanceId `
-      --database-version=POSTGRES_16 --tier=db-f1-micro --region=$Region `
+      --database-version=POSTGRES_16 --tier=$($attempt.Tier) --region=$Region `
       --availability-type=REGIONAL --edition=ENTERPRISE `
       @flags --project $ProjectId --quiet
+
+    if ($result.ExitCode -eq 0) {
+      $created = $true
+      Write-Ok "the instance $InstanceId was created with $($attempt.Tier)"
+      break
+    }
+
+    if ($result.Output -match 'org policy') {
+      Write-Warn "the organisation policy of the project does not allow the tier $($attempt.Tier):"
+      Write-Warn ($result.Output -split "`n" | Where-Object { $_ -match 'tier must be' } | Select-Object -First 1)
+      Write-Warn 'Ask the owner of the organisation to allow this machine type, then run this script again.'
+      break
+    }
   }
 
-  if ($result.ExitCode -ne 0) {
-    throw "The Cloud SQL instance could not be created: $($result.Output)"
+  if (-not $created) {
+    throw "The Cloud SQL instance could not be created. Last error: $((Invoke-Gcloud 'sql' 'instances' 'list' '--project' $ProjectId '--format=value(name)').Output)"
   }
-
-  Write-Ok "the instance $InstanceId was created"
 } else {
   Write-Ok "the instance $InstanceId exists"
 }
 
-$connectionName = (Invoke-Gcloud 'sql' 'instances' 'describe' $InstanceId --project $ProjectId '--format=value(connectionName)').Output.Trim()
+$instanceDescription = Invoke-Gcloud 'sql' 'instances' 'describe' $InstanceId --project $ProjectId '--format=json'
+$connectionName = ''
+$publicIp = ''
+try {
+  $instance = $instanceDescription.Output | ConvertFrom-Json
+  $connectionName = $instance.connectionName
+  $publicIp = $instance.ipAddresses | Where-Object { $_.type -eq 'PRIMARY' } | Select-Object -First 1 | ForEach-Object { $_.ipAddress }
+} catch {
+  Write-Warn 'The instance could not be read as JSON, the connection name is unknown.'
+}
 Write-Ok "connection name: $connectionName"
 
-$databases = Invoke-Gcloud 'sql' 'databases' 'list' '--instance' $InstanceId '--project' $ProjectId '--format=value(name)'
+$databases = Invoke-Gcloud 'sql' 'databases' 'list' '--instance' $InstanceId --project $ProjectId '--format=value(name)'
 if ($databases.Output -notmatch [regex]::Escape($DatabaseName)) {
   Invoke-Gcloud 'sql' 'databases' 'create' $DatabaseName --instance=$InstanceId --project $ProjectId --quiet | Out-Null
   Write-Ok "the database $DatabaseName was created"
@@ -279,7 +343,7 @@ if ($databases.Output -notmatch [regex]::Escape($DatabaseName)) {
 
 $appPassword = New-RandomSecret
 
-$users = Invoke-Gcloud 'sql' 'users' 'list' '--instance' $InstanceId '--project' $ProjectId '--format=value(name)'
+$users = Invoke-Gcloud 'sql' 'users' 'list' '--instance' $InstanceId --project $ProjectId '--format=value(name)'
 if ($users.Output -notmatch [regex]::Escape($AppUser)) {
   Invoke-Gcloud 'sql' 'users' 'create' $AppUser --instance=$InstanceId --password=$appPassword --project $ProjectId --quiet | Out-Null
   Write-Ok "the user $AppUser was created"
@@ -295,7 +359,6 @@ if ($users.Output -notmatch [regex]::Escape($AppUser)) {
 Write-Step 'Storing the secrets'
 
 $sessionSecret = New-RandomSecret -Bytes 48
-$databaseUrl = "postgresql://${AppUser}:${appPassword}@127.0.0.1:5432/${DatabaseName}"
 $useSecretManager = $enabled['secretmanager.googleapis.com']
 
 if ($useSecretManager) {
@@ -306,8 +369,7 @@ if ($useSecretManager) {
   }
 
   "session-secret=$sessionSecret" | Invoke-Gcloud 'secrets' 'versions' 'add' $SecretName --data-file=- --project $ProjectId | Out-Null
-  "database-url=$databaseUrl" | Invoke-Gcloud 'secrets' 'versions' 'add' $SecretName --data-file=- --project $ProjectId | Out-Null
-  Write-Ok 'the secrets were written to Secret Manager'
+  Write-Ok 'the session secret was written to Secret Manager'
 
   Invoke-Gcloud 'projects' 'add-iam-policy-binding' $ProjectId `
     --member="serviceAccount:$accountEmail" --role=roles/secretmanager.secretAccessor --quiet | Out-Null
@@ -324,30 +386,32 @@ Write-Step 'Building the API image'
 $image = "$Region-docker.pkg.dev/$ProjectId/$Repository/api:latest"
 $useArtifactRegistry = $enabled['artifactregistry.googleapis.com']
 
-if ($useArtifactRegistry) {
-  $repositories = Invoke-Gcloud 'artifacts' 'repositories' 'list' '--project' $ProjectId '--location' $Region '--format=value(name)'
-  if ($repositories.Output -notmatch [regex]::Escape($Repository)) {
-    Invoke-Gcloud 'artifacts' 'repositories' 'create' $Repository `
-      --repository-format=docker --location=$Region --description='API images' --project $ProjectId | Out-Null
-    Write-Ok "the repository $Repository was created"
-  }
-
-  if ($docker) {
-    Invoke-Gcloud 'auth' 'configure-docker' "$Region-docker.pkg.dev" --project $ProjectId | Out-Null
-    Push-Location "$RepoRoot\server"
-    try {
-      & docker build -t $image . | Out-Null
-      & docker push $image | Out-Null
-    } finally {
-      Pop-Location
-    }
-    Write-Ok "the image $image was built and pushed"
-  } else {
-    Invoke-Gcloud 'builds' 'submit' "--tag=$image" "$RepoRoot\server" --project $ProjectId --quiet | Out-Null
-    Write-Ok "the image $image was built by Cloud Build"
-  }
-} else {
+if (-not $useArtifactRegistry) {
   throw 'The project does not allow Artifact Registry, so the image cannot be stored. See the runbook, section 8.'
+}
+
+$repositories = Invoke-Gcloud 'artifacts' 'repositories' 'list' '--project' $ProjectId '--location' $Region '--format=value(name)'
+if ($repositories.Output -notmatch [regex]::Escape($Repository)) {
+  Invoke-Gcloud 'artifacts' 'repositories' 'create' $Repository `
+    --repository-format=docker --location=$Region --description='API images' --project $ProjectId | Out-Null
+  Write-Ok "the repository $Repository was created"
+}
+
+if ($docker) {
+  Invoke-Gcloud 'auth' 'configure-docker' "$Region-docker.pkg.dev" --project $ProjectId | Out-Null
+  Push-Location "$RepoRoot\server"
+  try {
+    & docker build -t $image . | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'The Docker build failed.' }
+    & docker push $image | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'The Docker push failed.' }
+  } finally {
+    Pop-Location
+  }
+  Write-Ok "the image $image was built and pushed"
+} else {
+  Invoke-Gcloud 'builds' 'submit' "--tag=$image" "$RepoRoot\server" --project $ProjectId --quiet | Out-Null
+  Write-Ok "the image $image was built by Cloud Build"
 }
 
 # ---------------------------------------------------------------------------
@@ -369,7 +433,7 @@ $proxyProcess = Start-Process -FilePath $proxy -ArgumentList '--port', '5432', $
 Start-Sleep -Seconds 5
 
 try {
-  $env:DATABASE_URL = $databaseUrl
+  $env:DATABASE_URL = "postgresql://${AppUser}:${appPassword}@127.0.0.1:5432/${DatabaseName}"
   Push-Location "$RepoRoot\server"
   try {
     & npm run migrate
@@ -388,6 +452,11 @@ try {
 # ---------------------------------------------------------------------------
 
 Write-Step 'Deploying the API to Cloud Run'
+
+# The API reaches the database on 127.0.0.1:5432, the Cloud SQL Auth Proxy of
+# the service does the TLS towards the instance. That works with a private and
+# with a public instance address.
+$databaseUrl = "postgresql://${AppUser}:${appPassword}@127.0.0.1:5432/${DatabaseName}"
 
 $template = Get-Content -LiteralPath "$RepoRoot\deploy\cloud-run-api.yaml" -Raw
 $rendered = $template.
@@ -410,7 +479,16 @@ Set-Content -LiteralPath $renderedFile -Value $rendered -Encoding utf8
 
 $deploy = Invoke-Gcloud 'run' 'services' 'replace' $renderedFile --region=$Region --project=$ProjectId --quiet
 if ($deploy.ExitCode -ne 0) {
-  throw "The Cloud Run deployment failed: $($deploy.Output)"
+  Write-Warn "the YAML deployment failed, the same service is deployed with the command line: $($deploy.Output.Split("`n")[0])"
+  $envArgs = @(
+    "--set-env-vars=NODE_ENV=production,PORT=8080,CLIENT_ORIGIN=https://$ProjectId.web.app,SESSION_SAME_SITE=none,DATABASE_SSL=false,DATABASE_URL=$databaseUrl,SESSION_SECRET=$sessionSecret",
+    '--allow-unauthenticated'
+  )
+  $deploy = Invoke-Gcloud 'run' 'deploy' $ServiceName --image=$image --region=$Region --project=$ProjectId `
+    --service-account=$accountEmail --add-cloudsql-instances=$connectionName --port=8080 --quiet @envArgs
+  if ($deploy.ExitCode -ne 0) {
+    throw "The Cloud Run deployment failed: $($deploy.Output)"
+  }
 }
 
 $apiUrl = (Invoke-Gcloud 'run' 'services' 'describe' $ServiceName --region=$Region --project=$ProjectId '--format=value(status.url)').Output.Trim()
@@ -425,13 +503,28 @@ $clientUrl = ''
 if (-not $SkipClient) {
   Write-Step 'Deploying the client to Firebase Hosting'
 
+  $firebaseProject = Invoke-Firebase 'projects:list' '--project' $ProjectId '--non-interactive'
+  if ($firebaseProject.Output -notmatch [regex]::Escape($ProjectId)) {
+    Write-Host '   adding the Firebase resources to the project'
+    Invoke-Firebase 'projects:addfirebase' $ProjectId '--non-interactive' | Out-Null
+  }
+
+  # The client calls the API on its own origin. Firebase Hosting forwards
+  # /api/** to the Cloud Run service, so the session cookie stays a first-party
+  # cookie. The target of the rewrite is written here, after the address of the
+  # API is known.
+  $firebaseJson = "$RepoRoot\client\firebase.json"
+  $firebaseJsonOriginal = Get-Content -LiteralPath $firebaseJson -Raw
+  $apiHost = ([uri]$apiUrl).Authority
+  $patched = $firebaseJsonOriginal -replace 'https://API_HOST/api/\*\*', "https://$apiHost/api/**"
+  Set-Content -LiteralPath $firebaseJson -Value $patched -Encoding utf8
+
   Push-Location "$RepoRoot\client"
   try {
-    $env:VITE_API_URL = "$apiUrl/api"
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw 'The client build failed.' }
 
-    $hosting = Invoke-Firebase @('deploy', '--only', 'hosting', '--project', $ProjectId, '--non-interactive')
+    $hosting = Invoke-Firebase 'deploy' '--only', 'hosting', '--project', $ProjectId, '--non-interactive'
     if ($hosting.ExitCode -ne 0) {
       Write-Warn "the hosting deployment failed: $($hosting.Output)"
       Write-Host '   The GCP project has to be added to Firebase first:'
@@ -442,7 +535,7 @@ if (-not $SkipClient) {
     }
   } finally {
     Pop-Location
-    Remove-Item Env:\VITE_API_URL -ErrorAction SilentlyContinue
+    Set-Content -LiteralPath $firebaseJson -Value $firebaseJsonOriginal -Encoding utf8
   }
 }
 
