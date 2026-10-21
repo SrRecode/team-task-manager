@@ -38,6 +38,7 @@ and in [the submission message](docs/SUBMISSION_MESSAGE.md).
 - [Testing and QA](docs/TESTING.md)
 - [Deployment on GCP](docs/DEPLOYMENT_GCP.md)
 - [Deployment runbook (step by step)](docs/DEPLOYMENT_RUNBOOK.md)
+- [Deployment script (one command)](deploy/deploy.ps1)
 - [Environment variables](docs/ENVIRONMENT.md)
 - [AI coding workflow](docs/AI_WORKFLOW.md)
 - [Definition of done](docs/DEFINITION_OF_DONE.md)
@@ -169,6 +170,16 @@ See [the deployment guide](docs/DEPLOYMENT_GCP.md) for the architecture and
 Artifact Registry, Cloud SQL, Secret Manager, the Cloud Run service with the
 Cloud SQL Auth Proxy sidecar, and Firebase Hosting for the client. The API is
 packaged by `server/Dockerfile`.
+
+`deploy/deploy.ps1` performs the whole deployment in one command:
+
+```powershell
+.\deploy\deploy.ps1 -Check                                   # check the environment
+.\deploy\deploy.ps1 -ProjectId PROJECT_ID -Region REGION     # deploy everything
+```
+
+The project needs a billing account, and the account needs the permission to
+create the billable resources.
 
 The assessment requires a deployed version on GCP. Verify current pricing and
 billing requirements before creating resources; GCP services may incur charges.

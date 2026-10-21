@@ -1,0 +1,452 @@
+<#
+.SYNOPSIS
+  Deploys the Team Task Manager to Google Cloud.
+
+.DESCRIPTION
+  Runs the whole deployment of the assessment in one go:
+
+    1. checks the environment (gcloud, Docker, the billing account of the project)
+    2. enables the APIs the project needs
+    3. creates the Artifact Registry repository and builds the API image
+    4. creates the service account of the API and its IAM bindings
+    5. creates the Cloud SQL instance, the database and the application user
+    6. stores the secrets (Secret Manager when the project allows it)
+    7. applies the migrations through the Cloud SQL Auth Proxy
+    8. deploys the API to Cloud Run
+    9. builds the client and deploys it to Firebase Hosting
+   10. prints the two URLs of the submission and the smoke test commands
+
+  Every step is idempotent: a resource that already exists is left alone.
+
+.PARAMETER ProjectId
+  The Google Cloud project that hosts the deployment.
+
+.PARAMETER Region
+  The region of the Cloud SQL instance, the Artifact Registry repository and the
+  Cloud Run service.
+
+.PARAMETER Check
+  Only run the preflight checks and print what is missing. Nothing is created.
+
+.EXAMPLE
+  .\deploy.ps1 -Check
+  .\deploy.ps1 -ProjectId my-project -Region asia-south1
+#>
+[CmdletBinding()]
+param(
+  [string]$ProjectId = 'glacier-team-task-manager',
+  [string]$Region = 'asia-south1',
+  [string]$InstanceId = 'glacier-db',
+  [string]$Repository = 'glacier',
+  [string]$ServiceName = 'glacier-api',
+  [string]$DatabaseName = 'glacier_tasks',
+  [string]$AppUser = 'glacier_app',
+  [string]$SecretName = 'glacier-api-secrets',
+  [string]$ServiceAccount = 'glacier-run',
+  [switch]$Check,
+  [switch]$SkipClient
+)
+
+$ErrorActionPreference = 'Stop'
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+
+function Write-Step($message) {
+  Write-Host ''
+  Write-Host "== $message" -ForegroundColor Cyan
+}
+
+function Write-Ok($message) {
+  Write-Host "   ok: $message" -ForegroundColor Green
+}
+
+function Write-Warn($message) {
+  Write-Host "   !  $message" -ForegroundColor Yellow
+}
+
+function Get-Gcloud {
+  $command = Get-Command gcloud -ErrorAction SilentlyContinue
+  if ($command) { return $command.Source }
+
+  $candidates = @(
+    "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
+    "C:\Program Files (x86)\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
+    "C:\Program Files\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"
+  )
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) { return $candidate }
+  }
+
+  throw 'The gcloud CLI is not installed. See the runbook, section 0.'
+}
+
+function Invoke-Gcloud {
+  param([Parameter(ValueFromRemainingArguments = $true)]$Arguments)
+
+  $output = & $script:Gcloud @Arguments 2>&1
+  $code = $LASTEXITCODE
+  $text = ($output | Out-String).Trim()
+
+  return [pscustomobject]@{ ExitCode = $code; Output = $text }
+}
+
+function Test-ApiEnabled {
+  param([string]$Service)
+
+  $result = Invoke-Gcloud 'services' 'list' '--enabled' '--project' $ProjectId '--format=value(config.name)'
+  return $result.Output -split "`n" | Where-Object { $_.Trim() -eq $Service }
+}
+
+function Enable-Api {
+  param([string]$Service)
+
+  if (Test-ApiEnabled $Service) {
+    Write-Ok "$Service is enabled"
+    return $true
+  }
+
+  $result = Invoke-Gcloud 'services' 'enable' $Service '--project' $ProjectId
+  if ($result.ExitCode -eq 0) {
+    Write-Ok "$Service enabled"
+    return $true
+  }
+
+  Write-Warn "$Service could not be enabled: $($result.Output.Split("`n")[0])"
+  return $false
+}
+
+function New-RandomSecret {
+  param([int]$Bytes = 24)
+
+  $bytes = New-Object byte[] $Bytes
+  [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  return -join ($bytes | ForEach-Object { $_.ToString('x2') })
+}
+
+# ---------------------------------------------------------------------------
+# 0. Preflight
+# ---------------------------------------------------------------------------
+
+Write-Step 'Checking the environment'
+
+$script:Gcloud = Get-Gcloud
+$version = Invoke-Gcloud '--version'
+Write-Ok "gcloud: $($version.Output.Split("`n")[0])"
+
+$account = Invoke-Gcloud 'config' 'get-value' 'account'
+if (-not $account.Output) {
+  throw 'No Google account is signed in. Run "gcloud auth login" first.'
+}
+Write-Ok "signed in as $($account.Output)"
+
+$docker = Get-Command docker -ErrorAction SilentlyContinue
+if ($docker) {
+  Write-Ok "docker: $(& docker --version)"
+} else {
+  Write-Warn 'Docker is not installed. The image can still be built by Cloud Build if that API is allowed.'
+}
+
+$billing = Invoke-Gcloud 'billing' 'projects' 'describe' $ProjectId '--format=value(billingEnabled)'
+if ($billing.ExitCode -ne 0) {
+  throw "The project $ProjectId does not exist, or the account cannot read it."
+}
+
+if ($billing.Output.Trim() -ne 'True') {
+  throw @"
+The project $ProjectId has no billing account.
+
+Cloud Run, Cloud SQL and Artifact Registry cannot be created without one. Open
+https://console.cloud.google.com/billing/linkedaccount?project=$ProjectId
+and link a billing account, then run this script again.
+"@
+}
+
+Write-Ok "the project $ProjectId has a billing account"
+
+if ($Check) {
+  Write-Step 'Preflight finished'
+  Write-Host 'Everything that is needed for the deployment is in place.' -ForegroundColor Green
+  exit 0
+}
+
+# ---------------------------------------------------------------------------
+# 1. APIs
+# ---------------------------------------------------------------------------
+
+Write-Step 'Enabling the APIs'
+
+$apis = @(
+  'run.googleapis.com',
+  'sqladmin.googleapis.com',
+  'artifactregistry.googleapis.com',
+  'cloudbuild.googleapis.com',
+  'secretmanager.googleapis.com',
+  'servicenetworking.googleapis.com',
+  'firebasehosting.googleapis.com',
+  'firebase.googleapis.com'
+)
+
+$enabled = @{}
+foreach ($api in $apis) { $enabled[$api] = Enable-Api $api }
+
+# ---------------------------------------------------------------------------
+# 2. Service account
+# ---------------------------------------------------------------------------
+
+Write-Step 'Preparing the service account of the API'
+
+$accountEmail = "$ServiceAccount@$ProjectId.iam.gserviceaccount.com"
+
+$existing = Invoke-Gcloud 'iam' 'service-accounts' 'list' '--project' $ProjectId '--format=value(email)'
+if ($existing.Output -notmatch [regex]::Escape($accountEmail)) {
+  Invoke-Gcloud 'iam' 'service-accounts' 'create' $ServiceAccount `
+    --project $ProjectId --display-name='Glacier API on Cloud Run' | Out-Null
+  Write-Ok "the service account $ServiceAccount was created"
+} else {
+  Write-Ok "the service account $ServiceAccount exists"
+}
+
+foreach ($role in @('roles/cloudsql.client', 'roles/logging.logWriter')) {
+  Invoke-Gcloud 'projects' 'add-iam-policy-binding' $ProjectId `
+    --member="serviceAccount:$accountEmail" --role=$role --quiet | Out-Null
+  Write-Ok "the role $role was granted"
+}
+
+# ---------------------------------------------------------------------------
+# 3. Cloud SQL
+# ---------------------------------------------------------------------------
+
+Write-Step 'Preparing Cloud SQL'
+
+$sqlInstances = Invoke-Gcloud 'sql' 'instances' 'list' '--project' $ProjectId '--format=value(name)'
+$instanceExists = $sqlInstances.Output -match [regex]::Escape($InstanceId)
+
+if (-not $instanceExists) {
+  Write-Host '   creating the instance, this takes a few minutes'
+
+  # A private IP needs the VPC peering. When the project does not allow it, the
+  # instance gets a public IP and stays behind the Cloud SQL Auth Proxy.
+  $private = $enabled['servicenetworking.googleapis.com']
+  $flags = if ($private) { @('--no-assign-ip') } else { @('--assign-ip') }
+
+  $result = Invoke-Gcloud 'sql' 'instances' 'create' $InstanceId `
+    --database-version=POSTGRES_16 --cpu=1 --memory=2GiB --region=$Region `
+    --availability-type=REGIONAL --edition=ENTERPRISE `
+    @flags --project $ProjectId --quiet
+
+  if ($result.ExitCode -ne 0) {
+    Write-Warn "the standard machine type was refused, retrying with the free tier shape"
+    $result = Invoke-Gcloud 'sql' 'instances' 'create' $InstanceId `
+      --database-version=POSTGRES_16 --tier=db-f1-micro --region=$Region `
+      --availability-type=REGIONAL --edition=ENTERPRISE `
+      @flags --project $ProjectId --quiet
+  }
+
+  if ($result.ExitCode -ne 0) {
+    throw "The Cloud SQL instance could not be created: $($result.Output)"
+  }
+
+  Write-Ok "the instance $InstanceId was created"
+} else {
+  Write-Ok "the instance $InstanceId exists"
+}
+
+$connectionName = (Invoke-Gcloud 'sql' 'instances' 'describe' $InstanceId --project $ProjectId '--format=value(connectionName)').Output.Trim()
+Write-Ok "connection name: $connectionName"
+
+$databases = Invoke-Gcloud 'sql' 'databases' 'list' '--instance' $InstanceId '--project' $ProjectId '--format=value(name)'
+if ($databases.Output -notmatch [regex]::Escape($DatabaseName)) {
+  Invoke-Gcloud 'sql' 'databases' 'create' $DatabaseName --instance=$InstanceId --project $ProjectId --quiet | Out-Null
+  Write-Ok "the database $DatabaseName was created"
+} else {
+  Write-Ok "the database $DatabaseName exists"
+}
+
+$appPassword = New-RandomSecret
+
+$users = Invoke-Gcloud 'sql' 'users' 'list' '--instance' $InstanceId '--project' $ProjectId '--format=value(name)'
+if ($users.Output -notmatch [regex]::Escape($AppUser)) {
+  Invoke-Gcloud 'sql' 'users' 'create' $AppUser --instance=$InstanceId --password=$appPassword --project $ProjectId --quiet | Out-Null
+  Write-Ok "the user $AppUser was created"
+} else {
+  Invoke-Gcloud 'sql' 'users' 'set-password' $AppUser --instance=$InstanceId --password=$appPassword --project $ProjectId --quiet | Out-Null
+  Write-Ok "the password of $AppUser was reset"
+}
+
+# ---------------------------------------------------------------------------
+# 4. Secrets
+# ---------------------------------------------------------------------------
+
+Write-Step 'Storing the secrets'
+
+$sessionSecret = New-RandomSecret -Bytes 48
+$databaseUrl = "postgresql://${AppUser}:${appPassword}@127.0.0.1:5432/${DatabaseName}"
+$useSecretManager = $enabled['secretmanager.googleapis.com']
+
+if ($useSecretManager) {
+  $secrets = Invoke-Gcloud 'secrets' 'list' '--project' $ProjectId '--format=value(name)'
+  if ($secrets.Output -notmatch [regex]::Escape($SecretName)) {
+    Invoke-Gcloud 'secrets' 'create' $SecretName --replication-policy=automatic --project $ProjectId | Out-Null
+    Write-Ok "the secret $SecretName was created"
+  }
+
+  "session-secret=$sessionSecret" | Invoke-Gcloud 'secrets' 'versions' 'add' $SecretName --data-file=- --project $ProjectId | Out-Null
+  "database-url=$databaseUrl" | Invoke-Gcloud 'secrets' 'versions' 'add' $SecretName --data-file=- --project $ProjectId | Out-Null
+  Write-Ok 'the secrets were written to Secret Manager'
+
+  Invoke-Gcloud 'projects' 'add-iam-policy-binding' $ProjectId `
+    --member="serviceAccount:$accountEmail" --role=roles/secretmanager.secretAccessor --quiet | Out-Null
+} else {
+  Write-Warn 'Secret Manager is not available in this project, the secrets are set as environment variables of the service'
+}
+
+# ---------------------------------------------------------------------------
+# 5. The image
+# ---------------------------------------------------------------------------
+
+Write-Step 'Building the API image'
+
+$image = "$Region-docker.pkg.dev/$ProjectId/$Repository/api:latest"
+$useArtifactRegistry = $enabled['artifactregistry.googleapis.com']
+
+if ($useArtifactRegistry) {
+  $repositories = Invoke-Gcloud 'artifacts' 'repositories' 'list' '--project' $ProjectId '--location' $Region '--format=value(name)'
+  if ($repositories.Output -notmatch [regex]::Escape($Repository)) {
+    Invoke-Gcloud 'artifacts' 'repositories' 'create' $Repository `
+      --repository-format=docker --location=$Region --description='API images' --project $ProjectId | Out-Null
+    Write-Ok "the repository $Repository was created"
+  }
+
+  if ($docker) {
+    Invoke-Gcloud 'auth' 'configure-docker' "$Region-docker.pkg.dev" --project $ProjectId | Out-Null
+    Push-Location "$RepoRoot\server"
+    try {
+      & docker build -t $image . | Out-Null
+      & docker push $image | Out-Null
+    } finally {
+      Pop-Location
+    }
+    Write-Ok "the image $image was built and pushed"
+  } else {
+    Invoke-Gcloud 'builds' 'submit' "--tag=$image" "$RepoRoot\server" --project $ProjectId --quiet | Out-Null
+    Write-Ok "the image $image was built by Cloud Build"
+  }
+} else {
+  throw 'The project does not allow Artifact Registry, so the image cannot be stored. See the runbook, section 8.'
+}
+
+# ---------------------------------------------------------------------------
+# 6. The migrations
+# ---------------------------------------------------------------------------
+
+Write-Step 'Applying the migrations'
+
+$proxyDirectory = Join-Path $env:TEMP 'glacier-deploy'
+$proxy = Join-Path $proxyDirectory 'cloud-sql-proxy.exe'
+New-Item -ItemType Directory -Path $proxyDirectory -Force | Out-Null
+
+if (-not (Test-Path -LiteralPath $proxy)) {
+  $url = 'https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.26.2/cloud-sql-proxy.x64.exe'
+  Invoke-WebRequest -Uri $url -OutFile $proxy -UseBasicParsing
+}
+
+$proxyProcess = Start-Process -FilePath $proxy -ArgumentList '--port', '5432', $connectionName -PassThru -WindowStyle Hidden
+Start-Sleep -Seconds 5
+
+try {
+  $env:DATABASE_URL = $databaseUrl
+  Push-Location "$RepoRoot\server"
+  try {
+    & npm run migrate
+    if ($LASTEXITCODE -ne 0) { throw 'The migration failed.' }
+  } finally {
+    Pop-Location
+  }
+  Write-Ok 'the schema is up to date'
+} finally {
+  Stop-Process -Id $proxyProcess.Id -ErrorAction SilentlyContinue
+  Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
+}
+
+# ---------------------------------------------------------------------------
+# 7. Cloud Run
+# ---------------------------------------------------------------------------
+
+Write-Step 'Deploying the API to Cloud Run'
+
+$template = Get-Content -LiteralPath "$RepoRoot\deploy\cloud-run-api.yaml" -Raw
+$rendered = $template.
+  Replace('PROJECT_ID', $ProjectId).
+  Replace('REGION', $Region).
+  Replace('INSTANCE_ID', $InstanceId).
+  Replace('glacier-run@PROJECT_ID.iam.gserviceaccount.com', $accountEmail)
+
+if (-not $useSecretManager) {
+  $rendered = $rendered -replace "(?ms)^\s*- name: DATABASE_URL.*?secretKeyRef:.*?\n\s+key: database-url\n", ''
+  $rendered = $rendered -replace "(?ms)^\s*- name: SESSION_SECRET.*?secretKeyRef:.*?\n\s+key: session-secret\n", ''
+  $rendered = $rendered.Replace(
+    '        - name: PORT',
+    "        - name: DATABASE_URL`n          value: `"$databaseUrl`"`n        - name: SESSION_SECRET`n          value: `"$sessionSecret`"`n        - name: PORT"
+  )
+}
+
+$renderedFile = Join-Path $env:TEMP 'glacier-cloud-run.yaml'
+Set-Content -LiteralPath $renderedFile -Value $rendered -Encoding utf8
+
+$deploy = Invoke-Gcloud 'run' 'services' 'replace' $renderedFile --region=$Region --project=$ProjectId --quiet
+if ($deploy.ExitCode -ne 0) {
+  throw "The Cloud Run deployment failed: $($deploy.Output)"
+}
+
+$apiUrl = (Invoke-Gcloud 'run' 'services' 'describe' $ServiceName --region=$Region --project=$ProjectId '--format=value(status.url)').Output.Trim()
+Write-Ok "the API is live at $apiUrl"
+
+# ---------------------------------------------------------------------------
+# 8. The client
+# ---------------------------------------------------------------------------
+
+$clientUrl = ''
+
+if (-not $SkipClient) {
+  Write-Step 'Deploying the client to Firebase Hosting'
+
+  Push-Location "$RepoRoot\client"
+  try {
+    $env:VITE_API_URL = "$apiUrl/api"
+    & npm run build
+    if ($LASTEXITCODE -ne 0) { throw 'The client build failed.' }
+
+    $hosting = Invoke-Gcloud 'firebase' 'deploy' '--only' 'hosting' '--project' $ProjectId --non-interactive
+    if ($hosting.ExitCode -ne 0) {
+      Write-Warn "the hosting deployment failed: $($hosting.Output)"
+    } else {
+      $clientUrl = "https://$ProjectId.web.app"
+      Write-Ok "the client is live at $clientUrl"
+    }
+  } finally {
+    Pop-Location
+    Remove-Item Env:\VITE_API_URL -ErrorAction SilentlyContinue
+  }
+}
+
+# ---------------------------------------------------------------------------
+# 9. The result
+# ---------------------------------------------------------------------------
+
+Write-Step 'The deployment is done'
+
+if ($clientUrl) {
+  Write-Host "   Frontend: $clientUrl"
+  Write-Host "   API:      $apiUrl"
+  Write-Host ''
+  Write-Host '   Write these two lines into README.md, docs/SUBMISSION_CHECKLIST.md'
+  Write-Host '   and docs/SUBMISSION_MESSAGE.md:'
+  Write-Host ''
+  Write-Host "   - Deployed application URL: $clientUrl"
+  Write-Host "   - API URL: $apiUrl"
+}
+
+Write-Host ''
+Write-Host '   Smoke test:' -ForegroundColor Cyan
+Write-Host "   curl $apiUrl/health"
+Write-Host "   curl `"$apiUrl/health?database=true`""

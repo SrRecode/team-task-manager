@@ -20,13 +20,63 @@ resources, and delete the Cloud SQL instance when the assessment is over.
 
 ---
 
-## 0. Prerequisites
+## 0. The one command that does everything
+
+`deploy/deploy.ps1` performs the whole deployment: it checks the environment,
+enables the APIs, creates the Artifact Registry repository, the service
+account, the Cloud SQL instance, the database, the user and the secrets, applies
+the migrations through the Cloud SQL Auth Proxy, deploys the API to Cloud Run
+and deploys the client to Firebase Hosting.
+
+```powershell
+# check the environment first, nothing is created
+.\deploy\deploy.ps1 -Check
+
+# the deployment itself
+.\deploy\deploy.ps1 -ProjectId PROJECT_ID -Region REGION
+```
+
+The script is idempotent, so it can be run again after a partial failure. The
+rest of this runbook explains every step, in case the script has to be done by
+hand.
+
+### The one thing the script cannot do
+
+A project without a billing account cannot run Cloud Run, Cloud SQL or Artifact
+Registry. Google rejects the activation of those APIs with
+`FAILED_PRECONDITION: Billing account for project ... is not found`. Link a
+billing account first:
+
+<https://console.cloud.google.com/billing/linkedaccount?project=PROJECT_ID>
+
+Without a billing account the script stops with that instruction, before it
+creates anything.
+
+### Organization policies
+
+An organization can restrict which services a project may use
+(`constraints/gcp.restrictServiceUsage`). The script adapts to it:
+
+| Service | Used for | When it is blocked |
+|---|---|---|
+| `run.googleapis.com` | the API | nothing else can host the API |
+| `sqladmin.googleapis.com` | the database | no database on GCP |
+| `artifactregistry.googleapis.com` | the image | the image has to come from somewhere else |
+| `cloudbuild.googleapis.com` | building the image | the image is built locally with Docker instead |
+| `secretmanager.googleapis.com` | the secrets | the secrets are set as environment variables of the service |
+| `servicenetworking.googleapis.com` | the private IP of Cloud SQL | the instance gets a public IP and stays behind the Auth Proxy |
+| `firebasehosting.googleapis.com` | the client | the client is served by another host |
+
+---
+
+## 0.1 Prerequisites
 
 | Requirement | How to get it |
 |---|---|
 | A Google Cloud project with billing enabled | <https://console.cloud.google.com/projectcreate> |
 | The `gcloud` CLI | `winget install --id Google.CloudSDK --source winget`, or the installer from <https://cloud.google.com/sdk/docs/install> |
 | The Firebase CLI | `npm install -g firebase-tools` |
+| Docker, for the local image build | <https://docs.docker.com/desktop/install/windows-install/> |
 | A Cloud SQL user with the `postgres` role | granted below |
 
 > The `gh` and `firebase` commands on this machine are npm packages, not the
@@ -36,7 +86,7 @@ resources, and delete the Cloud SQL instance when the assessment is over.
 gcloud --version
 gcloud init                      # sign in and pick the project
 gcloud config set project PROJECT_ID
-gcloud config set compute/region REGION      # for example europe-west1
+gcloud config set compute/region REGION      # for example asia-south1
 ```
 
 ---
@@ -74,10 +124,24 @@ gcloud artifacts repositories create glacier `
 ```powershell
 gcloud sql instances create glacier-db `
   --database-version=POSTGRES_16 --cpu=1 --memory=2GiB --region=REGION `
-  --availability-type=REGIONAL --no-assign-ip
+  --availability-type=REGIONAL --edition=ENTERPRISE --no-assign-ip
 ```
 
 The instance has no public IP. It is only reachable through the Auth Proxy.
+
+> If the command is refused with `Invalid Tier (db-custom-1-2048) for
+> (ENTERPRISE_PLUS) Edition`, the project does not allow that machine type.
+> Create the instance with the free tier shape instead:
+>
+> ```powershell
+> gcloud sql instances create glacier-db `
+>   --database-version=POSTGRES_16 --tier=db-f1-micro --region=REGION `
+>   --availability-type=REGIONAL --edition=ENTERPRISE --no-assign-ip
+> ```
+>
+> `--no-assign-ip` needs the VPC peering of step 2. When
+> `servicenetworking.googleapis.com` is blocked, use `--assign-ip` and keep the
+> instance behind the Auth Proxy, which encrypts the connection.
 
 ```powershell
 gcloud sql databases create glacier_tasks --instance=glacier-db
@@ -123,10 +187,11 @@ sidecar listens there inside the Cloud Run container.
 The migration is a deliberate release step, never an HTTP request. Run it from
 your machine through the Cloud SQL Auth Proxy:
 
-1. Download the proxy for Windows from
-   <https://cloud.google.com/sql/docs/postgres/sql-proxy> and start it:
+1. Download the proxy for Windows and start it:
 
    ```powershell
+   $ProxyUrl = "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.26.2/cloud-sql-proxy.x64.exe"
+   Invoke-WebRequest -Uri $ProxyUrl -OutFile .\cloud-sql-proxy.exe
    .\cloud-sql-proxy.exe --port 5432 PROJECT_ID:REGION:glacier-db
    ```
 
@@ -143,6 +208,8 @@ The output has to list `001_init.sql` as applied. The migration also creates the
 
 ## 8. Build and push the API image
 
+With Cloud Build:
+
 ```powershell
 gcloud builds submit `
   --tag REGION-docker.pkg.dev/PROJECT_ID/glacier/api:latest `
@@ -150,6 +217,20 @@ gcloud builds submit `
 ```
 
 Cloud Build reads `server/Dockerfile` and `server/.dockerignore`.
+
+Without Cloud Build, build the image locally and push it to the same
+repository. The result is the same image, only the build runs on the machine
+instead of in the cloud:
+
+```powershell
+gcloud auth configure-docker REGION-docker.pkg.dev --project PROJECT_ID
+cd server
+docker build -t REGION-docker.pkg.dev/PROJECT_ID/glacier/api:latest .
+docker push REGION-docker.pkg.dev/PROJECT_ID/glacier/api:latest
+```
+
+The image runs as the unprivileged `node` user, listens on port 8080 and
+answers `GET /health`.
 
 ## 9. Deploy the API to Cloud Run
 
