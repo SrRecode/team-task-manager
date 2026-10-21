@@ -3,9 +3,12 @@ import AppShell from '../components/layout/AppShell';
 import TeamPanel from '../components/teams/TeamPanel';
 import { teamsApi } from '../api/teams.api';
 import { useAuth } from '../context/useAuth';
+import { useToast } from '../context/useToast';
+import { hasErrors, validateTeam } from '../lib/validation';
 
 export default function TeamsPage() {
   const { user } = useAuth();
+  const { show } = useToast();
 
   const [teams, setTeams] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -15,6 +18,7 @@ export default function TeamsPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [createError, setCreateError] = useState('');
+  const [createFieldErrors, setCreateFieldErrors] = useState({});
   const [createPending, setCreatePending] = useState(false);
 
   const loadTeams = useCallback(() => {
@@ -39,15 +43,29 @@ export default function TeamsPage() {
   async function handleCreate(event) {
     event.preventDefault();
     setCreateError('');
+
+    // The browser checks the form first, the API stays the authority.
+    const errors = validateTeam({ name, description });
+    setCreateFieldErrors(errors);
+
+    if (hasErrors(errors)) return;
+
     setCreatePending(true);
     try {
-      const payload = await teamsApi.create({ name, description });
+      const payload = await teamsApi.create({ name: name.trim(), description: description.trim() });
       setName('');
       setDescription('');
       await loadTeams();
       setSelectedId(payload.data.team.id);
+      show(`The team “${payload.data.team.name}” is created.`);
     } catch (error) {
       setCreateError(error.message);
+
+      if (error.details) {
+        setCreateFieldErrors(
+          Object.fromEntries(error.details.map((detail) => [detail.field, detail.message]))
+        );
+      }
     } finally {
       setCreatePending(false);
     }
@@ -82,9 +100,19 @@ export default function TeamsPage() {
               required
               maxLength={120}
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                setCreateFieldErrors((current) => ({ ...current, name: undefined }));
+              }}
+              aria-invalid={Boolean(createFieldErrors.name)}
+              aria-describedby={createFieldErrors.name ? 'new-team-name-error' : undefined}
               className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
             />
+            {createFieldErrors.name ? (
+              <p id="new-team-name-error" role="alert" className="mt-1 text-sm text-coral">
+                {createFieldErrors.name}
+              </p>
+            ) : null}
           </div>
           <div>
             <label htmlFor="new-team-description" className="block text-sm font-medium text-ink">
@@ -96,9 +124,19 @@ export default function TeamsPage() {
               type="text"
               maxLength={2000}
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                setCreateFieldErrors((current) => ({ ...current, description: undefined }));
+              }}
+              aria-invalid={Boolean(createFieldErrors.description)}
+              aria-describedby={createFieldErrors.description ? 'new-team-description-error' : undefined}
               className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
             />
+            {createFieldErrors.description ? (
+              <p id="new-team-description-error" role="alert" className="mt-1 text-sm text-coral">
+                {createFieldErrors.description}
+              </p>
+            ) : null}
           </div>
           <div className="sm:col-span-2">
             <button

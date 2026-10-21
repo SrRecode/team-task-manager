@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { tasksApi } from '../../api/tasks.api';
 import { teamsApi } from '../../api/teams.api';
+import { hasErrors, validateTask } from '../../lib/validation';
 import { TASK_STATUSES, statusLabel } from './taskStatus';
 
 const inputClass =
@@ -28,6 +29,7 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
   const [dueDate, setDueDate] = useState(task?.dueDate ?? '');
   const [members, setMembers] = useState([]);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({});
   const [pending, setPending] = useState(false);
 
   // The members of the selected team are the only possible assignees.
@@ -65,11 +67,21 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
     const nextTeamId = event.target.value;
     setTeamId(nextTeamId);
     setAssignedTo('');
+    setFieldErrors((current) => ({ ...current, teamId: undefined }));
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
+    setFieldErrors({});
+
+    // The browser checks the form first, the API stays the authority: a field
+    // that passes here can still be rejected by the server.
+    const errors = validateTask({ title, description, dueDate, teamId });
+    setFieldErrors(errors);
+
+    if (hasErrors(errors)) return;
+
     setPending(true);
 
     const payload = {
@@ -86,9 +98,16 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
       } else {
         await tasksApi.create({ ...payload, teamId: Number(teamId) });
       }
-      onSaved();
+      onSaved({ action: isEdit ? 'updated' : 'created' });
     } catch (requestError) {
       setError(requestError.message);
+
+      // A validation error of the API is shown next to the field it belongs to.
+      if (requestError.details) {
+        setFieldErrors(
+          Object.fromEntries(requestError.details.map((detail) => [detail.field, detail.message]))
+        );
+      }
     } finally {
       setPending(false);
     }
@@ -132,11 +151,20 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
               type="text"
               required
               maxLength={200}
-              autoFocus
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onChange={(event) => {
+                setTitle(event.target.value);
+                setFieldErrors((current) => ({ ...current, title: undefined }));
+              }}
+              aria-invalid={Boolean(fieldErrors.title)}
+              aria-describedby={fieldErrors.title ? 'task-title-error' : undefined}
               className={inputClass}
             />
+            {fieldErrors.title ? (
+              <p id="task-title-error" role="alert" className="mt-1 text-sm text-coral">
+                {fieldErrors.title}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -149,9 +177,19 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
               rows={3}
               maxLength={2000}
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                setFieldErrors((current) => ({ ...current, description: undefined }));
+              }}
+              aria-invalid={Boolean(fieldErrors.description)}
+              aria-describedby={fieldErrors.description ? 'task-description-error' : undefined}
               className={inputClass}
             />
+            {fieldErrors.description ? (
+              <p id="task-description-error" role="alert" className="mt-1 text-sm text-coral">
+                {fieldErrors.description}
+              </p>
+            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -166,6 +204,8 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
                 value={teamId}
                 onChange={handleTeamChange}
                 disabled={isEdit}
+                aria-invalid={Boolean(fieldErrors.teamId)}
+                aria-describedby={fieldErrors.teamId ? 'task-team-error' : undefined}
                 className={inputClass}
               >
                 {teams.map((team) => (
@@ -174,6 +214,11 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
                   </option>
                 ))}
               </select>
+              {fieldErrors.teamId ? (
+                <p id="task-team-error" role="alert" className="mt-1 text-sm text-coral">
+                  {fieldErrors.teamId}
+                </p>
+              ) : null}
               {isEdit ? (
                 <p className="mt-1 text-xs text-ink-muted">A task always stays in its team.</p>
               ) : null}
@@ -227,9 +272,19 @@ export default function TaskModal({ task, teams, onClose, onSaved }) {
                 name="dueDate"
                 type="date"
                 value={dueDate}
-                onChange={(event) => setDueDate(event.target.value)}
+                onChange={(event) => {
+                  setDueDate(event.target.value);
+                  setFieldErrors((current) => ({ ...current, dueDate: undefined }));
+                }}
+                aria-invalid={Boolean(fieldErrors.dueDate)}
+                aria-describedby={fieldErrors.dueDate ? 'task-due-date-error' : undefined}
                 className={inputClass}
               />
+              {fieldErrors.dueDate ? (
+                <p id="task-due-date-error" role="alert" className="mt-1 text-sm text-coral">
+                  {fieldErrors.dueDate}
+                </p>
+              ) : null}
             </div>
           </div>
 

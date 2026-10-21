@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { teamsApi } from '../../api/teams.api';
+import { useToast } from '../../context/useToast';
+import { validateEmail } from '../../lib/validation';
 
 function RoleBadge({ role }) {
   const isOwner = role === 'owner';
@@ -22,11 +24,14 @@ function RoleBadge({ role }) {
  * adding a member, renaming the team and deleting it.
  */
 export default function TeamPanel({ team, currentUserId, onChanged, onDeleted }) {
+  const { show } = useToast();
+
   const [members, setMembers] = useState([]);
   const [membersError, setMembersError] = useState('');
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [email, setEmail] = useState('');
   const [addError, setAddError] = useState('');
+  const [addFieldError, setAddFieldError] = useState('');
   const [addPending, setAddPending] = useState(false);
   const [name, setName] = useState(team.name);
   const [description, setDescription] = useState(team.description);
@@ -37,6 +42,7 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
   const [invitesError, setInvitesError] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteError, setInviteError] = useState('');
+  const [inviteFieldError, setInviteFieldError] = useState('');
   const [inviteMessage, setInviteMessage] = useState('');
   const [invitePending, setInvitePending] = useState(false);
 
@@ -87,14 +93,24 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
   async function handleInvite(event) {
     event.preventDefault();
     setInviteError('');
+    setInviteFieldError('');
     setInviteMessage('');
+
+    // The browser checks the address first, the API stays the authority.
+    const fieldError = validateEmail(inviteEmail);
+    if (fieldError) {
+      setInviteFieldError(fieldError);
+      return;
+    }
+
     setInvitePending(true);
     try {
-      await teamsApi.createInvite(team.id, inviteEmail);
+      await teamsApi.createInvite(team.id, inviteEmail.trim());
       setInviteEmail('');
       setInviteMessage(
         'The invitation is recorded. No email is sent in this build: the member joins when the invited address registers or signs in.'
       );
+      show(`The invitation for ${inviteEmail.trim()} is recorded.`);
       await loadInvites();
     } catch (error) {
       setInviteError(error.message);
@@ -107,6 +123,7 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
     setInvitesError('');
     try {
       await teamsApi.revokeInvite(team.id, inviteId);
+      show('The invitation is revoked.');
       await loadInvites();
     } catch (error) {
       setInvitesError(error.message);
@@ -116,11 +133,21 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
   async function handleAddMember(event) {
     event.preventDefault();
     setAddError('');
+    setAddFieldError('');
+
+    // The browser checks the address first, the API stays the authority.
+    const fieldError = validateEmail(email);
+    if (fieldError) {
+      setAddFieldError(fieldError);
+      return;
+    }
+
     setAddPending(true);
     try {
-      await teamsApi.addMember(team.id, email);
+      const payload = await teamsApi.addMember(team.id, email.trim());
       setEmail('');
       await loadMembers();
+      show(`${payload.data.member.name} is a member of the team.`);
     } catch (error) {
       setAddError(error.message);
     } finally {
@@ -134,6 +161,11 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
       await teamsApi.removeMember(team.id, userId);
       await loadMembers();
       onChanged();
+      show(
+        userId === currentUserId
+          ? 'You have left the team.'
+          : 'The member is removed from the team.'
+      );
     } catch (error) {
       setMembersError(error.message);
     }
@@ -144,7 +176,8 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
     setEditError('');
     setEditPending(true);
     try {
-      await teamsApi.update(team.id, { name, description });
+      await teamsApi.update(team.id, { name: name.trim(), description: description.trim() });
+      show('The team is updated.');
       onChanged();
     } catch (error) {
       setEditError(error.message);
@@ -158,6 +191,7 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
     setDeletePending(true);
     try {
       await teamsApi.remove(team.id);
+      show(`The team “${team.name}” is deleted.`);
       onDeleted();
     } catch (error) {
       setEditError(error.message);
@@ -266,8 +300,13 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
               type="email"
               required
               value={email}
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setAddFieldError('');
+              }}
               placeholder="member@example.com"
+              aria-invalid={Boolean(addFieldError)}
+              aria-describedby={addFieldError ? 'member-email-error' : undefined}
               className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
             />
             <button
@@ -278,6 +317,11 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
               {addPending ? 'Adding…' : 'Add member'}
             </button>
           </form>
+          {addFieldError ? (
+            <p id="member-email-error" role="alert" className="mt-2 text-sm text-coral">
+              {addFieldError}
+            </p>
+          ) : null}
           {addError ? (
             <p role="alert" className="mt-2 text-sm text-coral">
               {addError}
@@ -301,8 +345,13 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
               type="email"
               required
               value={inviteEmail}
-              onChange={(event) => setInviteEmail(event.target.value)}
+              onChange={(event) => {
+                setInviteEmail(event.target.value);
+                setInviteFieldError('');
+              }}
               placeholder="invitee@example.com"
+              aria-invalid={Boolean(inviteFieldError)}
+              aria-describedby={inviteFieldError ? 'invite-email-error' : undefined}
               className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
             />
             <button
@@ -313,6 +362,11 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
               {invitePending ? 'Recording…' : 'Record invitation'}
             </button>
           </form>
+          {inviteFieldError ? (
+            <p id="invite-email-error" role="alert" className="mt-2 text-sm text-coral">
+              {inviteFieldError}
+            </p>
+          ) : null}
           {inviteError ? (
             <p role="alert" className="mt-2 text-sm text-coral">
               {inviteError}
