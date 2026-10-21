@@ -378,3 +378,23 @@ login response first.
 - Delete the secrets and the Artifact Registry repository.
 - Delete the Firebase Hosting site.
 - Remove the deployed URL from the README, or keep it if the site is still up.
+
+## 14. What the deployment costs
+
+The footprint of the deployment is deliberately small, so it stays inside the
+free trial credit of a new project and costs almost nothing after that.
+
+| Resource | Setting | Cost |
+|---|---|---|
+| Cloud Run | `minScale: 0`, `maxScale: 3` | no cost while it is idle, the free tier covers the requests |
+| Cloud SQL for PostgreSQL | `db-f1-micro`, `ZONAL`, 10 GB | the smallest instance Google Cloud offers, about 0.01 USD per hour |
+| Artifact Registry | one image of about 50 MB | a few cents per month |
+| Secret Manager | two secrets | free |
+| Firebase Hosting | one static site | free (Spark plan) |
+
+The script uses those settings by default (`-Tier db-f1-micro`,
+`-AvailabilityType ZONAL`). A bigger instance is only needed for a load test.
+
+Delete the Cloud SQL instance when the assessment is over, it is the only
+resource that costs money every hour.
+
