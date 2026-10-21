@@ -16,6 +16,8 @@ erDiagram
     TEAMS ||--o{ TASKS : contains
     USERS ||--o{ TASKS : creates
     USERS o|--o{ TASKS : assigned_to
+    TEAMS ||--o{ TEAM_INVITES : invites
+    USERS ||--o{ TEAM_INVITES : sends
 ```
 
 ## 3. Suggested schema
@@ -83,6 +85,34 @@ ALTER TABLE tasks
 ```
 
 With `MATCH SIMPLE`, the composite constraint is not checked when `assigned_to` is null. Confirm member-removal behavior before adding this constraint: removing a member assigned to existing tasks requires a defined policy (for example, unassign those tasks first). Use a transaction to avoid partial updates.
+
+### Invitations (BONUS-03)
+
+`002_team_invites.sql` adds the table that backs the invitation stub. There is
+no mail server in this build, so an invitation is a record instead of a
+message.
+
+```sql
+CREATE TABLE team_invites (
+  id BIGSERIAL PRIMARY KEY,
+  team_id BIGINT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  email TEXT NOT NULL CHECK (length(trim(email)) BETWEEN 3 AND 320),
+  invited_by BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  accepted_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX idx_team_invites_pending_unique
+  ON team_invites(team_id, email)
+  WHERE status = 'pending';
+```
+
+- The partial unique index allows one pending invitation per team and address,
+  while the accepted and revoked rows stay in the table as a history.
+- The invitation becomes a membership in one transaction when the invited
+  address registers or signs in, so an invitation is never marked as accepted
+  without the membership existing.
 
 ## 4. Email normalization
 
