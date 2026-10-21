@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Logs
+*.log
+logs/
+
+# Cache and temporary files
+.cache/
+.tmp/
+temp/
+
+# Test coverage
+coverage/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor settings
+.vscode/
+.idea/
+
+# Local databases and backups
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+
+# Package manager and lock files
+# Keep package-lock.json and other lock files tracked
