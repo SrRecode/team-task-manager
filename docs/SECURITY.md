@@ -62,6 +62,15 @@ Recommended baseline:
 
 Define and document the task mutation policy. A reasonable small-project rule is that team members may create tasks, while creators/owners or authorized members may update/delete them. Enforce the rule in services for every request.
 
+The policy that is implemented:
+
+- Any member of a team may create a task in that team.
+- A task may be changed or deleted by the member who created it and by the owner of its team. Every other member of the team may read the task but not change it.
+- A task always stays in the team it was created in. The `teamId` of a task is immutable, so the team and assignee rules cannot be broken by moving a task.
+- The assignee of a task must be a member of the same team. The check runs in the task service and is enforced a second time by the `fk_task_assignee_is_team_member` constraint.
+- A member of a team cannot leave the team by removing themselves from the owner role, and the owner cannot leave their own team: a team without an owner could never be managed or deleted again.
+- A task of a team the caller does not belong to is reported as 404, so its existence stays concealed. A member who may see the task but not change it gets 403.
+
 Never rely on hiding a button as access control.
 
 ## 6. Input and data safety

@@ -10,13 +10,14 @@ The application is implemented milestone by milestone on feature branches, each
 merged through a pull request. The status below reflects what is merged into
 `main` today.
 
-- [x] Backend implemented and tested (M1 — foundation and auth)
+- [x] Frontend implemented and tested (React, Tailwind CSS, Vite)
+- [x] Backend implemented and tested (Node.js, Express, Passport.js, sessions)
 - [x] PostgreSQL schema and migrations applied
 - [x] Authentication and authorization tested
-- [x] Team and task workflows tested (M2 — teams; M3 — tasks in pull request #3)
+- [x] Team and task workflows tested
+- [x] Bonus features: due-date reminders, owner/member roles, email invite stub
 - [x] GitHub feature branches and PR history present
-- [ ] GCP deployment verified — the artifacts are in the repository, the project
-      has to be created and deployed by the owner
+- [ ] GCP deployment verified — see [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
 - [ ] Submission links ready — the repository link is verified, the deployed URL
       follows the deployment
 
@@ -80,65 +81,65 @@ psql --version
 
 ## Local setup
 
-### 1. Clone and create the database
+The commands below were run in this repository with Node.js 24 and PostgreSQL 18.
 
 ```powershell
+# 1. Clone the repository and install the dependencies of the API and of the client
 git clone https://github.com/SrRecode/team-task-manager.git
 cd team-task-manager
-psql -U postgres -c "CREATE DATABASE glacier_tasks;"
-```
-
-### 2. API
-
-```powershell
 cd server
 npm ci
-Copy-Item .env.example .env
-```
+cd ..\client
+npm ci
+cd ..
 
-Edit `server/.env`: set `DATABASE_URL` to your local PostgreSQL credentials and
-generate a session secret:
+# 2. Configure the environment
+copy server\.env.example server\.env    # then fill in DATABASE_URL and SESSION_SECRET
+copy client\.env.example client\.env    # optional, the API URL already defaults to http://localhost:5000/api
 
-```powershell
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-```
-
-Apply the migrations and start the API:
-
-```powershell
+# 3. Create the database and apply the migrations
+createdb glacier_tasks
+cd server
 npm run migrate
-npm run dev
+
+# 4. Start the API and the client in two terminals
+npm start        # http://localhost:5000, health check at /health
+cd ..\client
+npm run dev      # http://localhost:5173
 ```
 
-The API listens on `http://localhost:5000` and answers `GET /health`.
+The API refuses to start without `DATABASE_URL` and `SESSION_SECRET`. Generate a
+session secret with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
 
-### 3. Client
-
-In a second terminal:
-
-```powershell
-cd client
-npm ci
-Copy-Item .env.example .env
-npm run dev
-```
-
-The client runs on `http://localhost:5173` and calls the API at
-`VITE_API_URL` (`http://localhost:5000/api` by default).
-
-### 4. Verify
-
-Follow [docs/TESTING.md](docs/TESTING.md) for the end-to-end workflow, or run
-the automated suites:
+### Tests, lint and build
 
 ```powershell
 cd server
-npm test        # node:test against the local test database
+npm test         # 90 tests: auth, teams, tasks, reminders and invites, against a separate test database
 
 cd ..\client
 npm run lint
 npm run build
 ```
+
+The test suite needs its own PostgreSQL database. It derives the name
+`glacier_tasks_test` from `DATABASE_URL` and creates the tables itself, so
+create that database once:
+
+```powershell
+createdb glacier_tasks_test
+```
+
+The tables are truncated before every test, so the test database must not be
+used for anything else. Set `TEST_DATABASE_NAME` to use a different name.
+
+### The application in the browser
+
+1. Register a user and sign in.
+2. Create a team and add a second registered user to it.
+3. Create a task in the team, assign it to a member and change its status.
+4. Filter the tasks by team, assignee, status and search term.
+5. Sign out and confirm that the protected API routes answer with 401.
 
 ## Core user flows
 
