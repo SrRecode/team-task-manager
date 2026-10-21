@@ -89,6 +89,31 @@ Invitations (BONUS-03):
 
 Do not use real personal data or production credentials in test fixtures.
 
+### What was verified on 21 October 2026
+
+The workflow above was executed in a browser against the local stack
+(PostgreSQL 18 on `localhost:5432`, the API on `http://localhost:5000`, the
+client on `http://localhost:5173`).
+
+| Step | Result |
+|---|---|
+| Register `asha.khan@glacier.test` | the account is created, the session starts, the dashboard opens |
+| Create the team `Website Redesign` | the creator becomes the **owner**, the team and its member list are shown |
+| Record the invitation for `omar.reza@glacier.test` | the invitation is listed as pending, the notice says that no mail was sent |
+| Register `omar.reza@glacier.test` | the invitation is **accepted**, the user joins the team as a member |
+| Add the same address as a member | the API answers `409 Conflict`, the user is a member already |
+| Create the task `Rewrite the pricing page` | team, assignee, status and due date are stored and shown |
+| Change the status to `In progress` and the assignee | the change is saved, the list and the filters follow |
+| Filter by status `Done` | the list is empty, the notice "No task matches these filters" appears |
+| Filter by the search term `pricing` | only the task is listed, another term empties the list |
+| Reminders panel | "1 task of yours needs attention", the task is in the group `Coming up` |
+| Sign out | the session cookie is gone and `GET /api/tasks` answers `401` |
+| Sign in again | the dashboard, the team and the task are restored from the session |
+
+The automated suites cover the same flows on the server:
+`npm test` in `server` runs 90 tests (`auth`, `teams`, `tasks`, `invites`,
+`reminders`).
+
 ## 5. Before each PR
 
 ```powershell
