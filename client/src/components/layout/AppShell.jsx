@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/useAuth';
 
@@ -7,6 +8,7 @@ import { useAuth } from '../../context/useAuth';
  */
 export default function AppShell({ children }) {
   const { user, logout, acceptedInvites, dismissAcceptedInvites } = useAuth();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-paper">
@@ -19,7 +21,54 @@ export default function AppShell({ children }) {
             <h1 className="text-lg font-semibold text-ink">Team Task Manager</h1>
           </div>
 
-          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 md:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileOpen((open) => !open)}
+              aria-expanded={mobileOpen}
+              aria-label={mobileOpen ? 'Close the menu' : 'Open the menu'}
+              aria-controls="mobile-menu"
+              className="rounded-lg border border-line bg-paper px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-coral/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+            >
+              {mobileOpen ? 'Close' : 'Menu'}
+            </button>
+          </nav>
+
+          <nav id="mobile-menu" className="flex w-full flex-col gap-2 md:hidden" aria-label="Mobile navigation">
+            {mobileOpen ? (
+              <>
+                <Link
+                  to="/"
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-lg border border-line bg-surface px-4 py-3 text-sm font-medium text-ink hover:bg-paper"
+                >
+                  Dashboard
+                </Link>
+                <Link
+                  to="/teams"
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-lg border border-line bg-surface px-4 py-3 text-sm font-medium text-ink hover:bg-paper"
+                >
+                  Teams
+                </Link>
+                <div className="flex items-center justify-between rounded-lg border border-line bg-surface px-4 py-3">
+                  <span className="text-sm text-ink-muted">{user?.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileOpen(false);
+                      logout();
+                    }}
+                    className="rounded-lg border border-line bg-paper px-3 py-1.5 text-sm font-medium text-ink transition hover:bg-coral/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </nav>
+
+          <nav className="hidden flex-wrap items-center gap-x-4 gap-y-2 md:flex md:w-auto">
             <Link
               to="/"
               className="text-sm font-medium text-ink-muted underline underline-offset-4 hover:text-ink"
