@@ -2,6 +2,7 @@
 
 const config = require('../../config/env');
 const { createUser, toPublicUser } = require('./auth.service');
+const { acceptPendingInvites } = require('../teams/invite.service');
 const { unauthorized } = require('../../utils/errors');
 
 /**
@@ -10,6 +11,9 @@ const { unauthorized } = require('../../utils/errors');
  * Creates the account and establishes an authenticated session.
  * Passport regenerates the session id on logIn, which prevents session
  * fixation (docs/SECURITY.md section 3).
+ *
+ * Any invitation that was sent to the address is turned into a membership
+ * here, so an invited person joins the team by registering.
  */
 async function register(req, res, next) {
   try {
@@ -19,9 +23,13 @@ async function register(req, res, next) {
       password: req.body.password,
     });
 
+    const acceptedInvites = await acceptPendingInvites({ userId: user.id, email: user.email });
+
     req.logIn(user, (error) => {
       if (error) return next(error);
-      return res.status(201).json({ data: { user: toPublicUser(user) } });
+      return res
+        .status(201)
+        .json({ data: { user: toPublicUser(user), acceptedInvites } });
     });
   } catch (error) {
     return next(error);
@@ -35,9 +43,21 @@ async function register(req, res, next) {
  * This handler only runs after the strategy succeeded, and Passport has
  * already regenerated the session id, which prevents session fixation
  * (docs/SECURITY.md section 3).
+ *
+ * Pending invitations are accepted on sign in as well, so an invitation to an
+ * address that was already registered also becomes a membership.
  */
-function login(req, res) {
-  return res.status(200).json({ data: { user: toPublicUser(req.user) } });
+async function login(req, res, next) {
+  try {
+    const acceptedInvites = await acceptPendingInvites({
+      userId: req.user.id,
+      email: req.user.email,
+    });
+
+    return res.status(200).json({ data: { user: toPublicUser(req.user), acceptedInvites } });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 /**

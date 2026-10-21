@@ -2,6 +2,7 @@
 
 const { forbidden, notFound } = require('../../utils/errors');
 const service = require('./team.service');
+const inviteService = require('./invite.service');
 
 /**
  * GET /api/teams
@@ -139,6 +140,57 @@ async function removeMember(req, res, next) {
   }
 }
 
+/**
+ * GET /api/teams/:teamId/invites
+ * Lists the invitations of a team. Any member of the team may read this.
+ */
+async function listInvites(req, res, next) {
+  try {
+    const invites = await inviteService.listInvites(req.team.id);
+    return res.status(200).json({ data: { invites } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
+ * POST /api/teams/:teamId/invites
+ * Invites an address to the team. Owner only.
+ *
+ * The address does not have to be registered. The invitation is stored as a
+ * pending record; no email is sent, which the response states explicitly.
+ */
+async function createInvite(req, res, next) {
+  try {
+    const invite = await inviteService.createInvite({
+      teamId: req.team.id,
+      email: req.body.email,
+      invitedBy: req.user.id,
+    });
+    return res.status(201).json({ data: { invite } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/**
+ * DELETE /api/teams/:teamId/invites/:inviteId
+ * Revokes a pending invitation. Owner only.
+ */
+async function revokeInvite(req, res, next) {
+  try {
+    const revoked = await inviteService.revokeInvite(req.team.id, Number(req.params.inviteId));
+
+    if (!revoked) {
+      return next(notFound('That invitation does not exist or is no longer pending'));
+    }
+
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   listTeams,
   createTeam,
@@ -148,4 +200,7 @@ module.exports = {
   listMembers,
   addMember,
   removeMember,
+  listInvites,
+  createInvite,
+  revokeInvite,
 };

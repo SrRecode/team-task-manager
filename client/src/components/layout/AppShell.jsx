@@ -6,7 +6,7 @@ import { useAuth } from '../../context/useAuth';
  * out button.
  */
 export default function AppShell({ children }) {
-  const { user, logout } = useAuth();
+  const { user, logout, acceptedInvites, dismissAcceptedInvites } = useAuth();
 
   return (
     <div className="min-h-screen bg-paper">
@@ -44,7 +44,31 @@ export default function AppShell({ children }) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-10">{children}</main>
+      <main className="mx-auto max-w-5xl px-4 py-10">
+        {acceptedInvites.length > 0 ? (
+          <div
+            role="status"
+            className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-plum/30 bg-plum/10 px-4 py-3 text-sm text-ink"
+          >
+            <p>
+              Your pending invitation turned into a membership:{' '}
+              <span className="font-semibold">
+                {acceptedInvites.map((invite) => invite.teamName).join(', ')}
+              </span>
+              .
+            </p>
+            <button
+              type="button"
+              onClick={dismissAcceptedInvites}
+              className="text-xs font-medium text-plum-soft underline underline-offset-4 hover:text-coral"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : null}
+
+        {children}
+      </main>
     </div>
   );
 }

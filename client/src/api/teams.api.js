@@ -18,4 +18,12 @@ export const teamsApi = {
     request(`/teams/${teamId}/members`, { method: 'POST', body: JSON.stringify({ email }) }),
 
   removeMember: (teamId, userId) => request(`/teams/${teamId}/members/${userId}`, { method: 'DELETE' }),
+
+  listInvites: (teamId) => request(`/teams/${teamId}/invites`),
+
+  createInvite: (teamId, email) =>
+    request(`/teams/${teamId}/invites`, { method: 'POST', body: JSON.stringify({ email }) }),
+
+  revokeInvite: (teamId, inviteId) =>
+    request(`/teams/${teamId}/invites/${inviteId}`, { method: 'DELETE' }),
 };
