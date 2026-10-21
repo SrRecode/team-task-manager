@@ -1,7 +1,14 @@
 'use strict';
 
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 const config = require('./env');
+
+// Postgres returns int8 (bigint) as a string, so that values too large for a
+// JavaScript number do not lose precision. Every id in this schema is a
+// BIGSERIAL that fits comfortably in a JavaScript number, so they are parsed
+// as numbers. This keeps ids numeric in JSON responses and comparable with
+// === in the authorization checks.
+types.setTypeParser(types.builtins.INT8, (value) => Number(value));
 
 const pool = new Pool({
   connectionString: config.databaseUrl,
