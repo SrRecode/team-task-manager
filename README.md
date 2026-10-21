@@ -6,16 +6,23 @@ A full-stack Team Task Manager built for the Glacier Agency Full Stack Developme
 
 ## Status
 
-This repository is a project blueprint and implementation guide. Update the status and deployment URLs only after you verify the corresponding functionality.
+The application is implemented milestone by milestone on feature branches, each
+merged through a pull request. The status below reflects what is merged into
+`main` today.
 
-- [ ] Frontend implemented and tested
-- [ ] Backend implemented and tested
-- [ ] PostgreSQL schema and migrations applied
-- [ ] Authentication and authorization tested
-- [ ] Team and task workflows tested
-- [ ] GitHub feature branches and PR history present
-- [ ] GCP deployment verified
-- [ ] Submission links ready
+- [x] Backend implemented and tested (M1 — foundation and auth)
+- [x] PostgreSQL schema and migrations applied
+- [x] Authentication and authorization tested
+- [x] Team and task workflows tested (M2 — teams; M3 — tasks in pull request #3)
+- [x] GitHub feature branches and PR history present
+- [ ] GCP deployment verified — the artifacts are in the repository, the project
+      has to be created and deployed by the owner
+- [ ] Submission links ready — the repository link is verified, the deployed URL
+      follows the deployment
+
+The remaining open items are the steps that need access to a Google Cloud
+project; they are described in [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
+and in [the submission message](docs/SUBMISSION_MESSAGE.md).
 
 ## Documentation map
 
@@ -30,28 +37,38 @@ This repository is a project blueprint and implementation guide. Update the stat
 - [Git and GitHub workflow](docs/GIT_WORKFLOW.md)
 - [Testing and QA](docs/TESTING.md)
 - [Deployment on GCP](docs/DEPLOYMENT_GCP.md)
+- [Deployment runbook (step by step)](docs/DEPLOYMENT_RUNBOOK.md)
 - [Environment variables](docs/ENVIRONMENT.md)
 - [AI coding workflow](docs/AI_WORKFLOW.md)
 - [Definition of done](docs/DEFINITION_OF_DONE.md)
 - [Submission checklist](docs/SUBMISSION_CHECKLIST.md)
 
-## Suggested repository layout
+## Repository layout
 
 ```text
-glacier-task-manager/
-├── client/                  # React + Vite + Tailwind
-├── server/                  # Express API
-├── docs/                    # Project and assessment documentation
+team-task-manager/
+├── client/                  # React + Vite + Tailwind frontend
+│   └── firebase.json        # Firebase Hosting configuration
+├── server/                  # Express + Passport API
+│   ├── Dockerfile           # Production image for Cloud Run
+│   └── .dockerignore
+├── deploy/
+│   └── cloud-run-api.yaml   # Cloud Run service + Cloud SQL Proxy sidecar
+├── docs/                    # Project, assessment and deployment documentation
 ├── .github/
+│   ├── workflows/ci.yml     # Server tests, client lint and build
 │   └── pull_request_template.md
 ├── .gitignore
-├── package.json
 └── README.md
 ```
 
+There is no root `package.json`: the client and the server are installed and
+run separately.
+
 ## Prerequisites
 
-Install a supported Node.js LTS version, npm, Git, and PostgreSQL. Verify:
+Install a supported Node.js LTS version (Node 22 is used in CI), npm, Git, and
+PostgreSQL 14 or newer. Verify:
 
 ```powershell
 node -v
@@ -60,17 +77,67 @@ git --version
 psql --version
 ```
 
-## Local setup overview
+## Local setup
 
-1. Clone the repository.
-2. Install frontend/backend dependencies according to the package manifests.
-3. Create a local PostgreSQL database named `glacier_tasks`.
-4. Copy `.env.example` files to local `.env` files and fill in local-only values.
-5. Run database migrations.
-6. Start the API and frontend in separate terminals.
-7. Follow `docs/TESTING.md` to verify the end-to-end workflow.
+### 1. Clone and create the database
 
-Exact commands depend on the actual package scripts and installed dependency versions. Do not document a command as working until you have run it in this repository.
+```powershell
+git clone https://github.com/SrRecode/team-task-manager.git
+cd team-task-manager
+psql -U postgres -c "CREATE DATABASE glacier_tasks;"
+```
+
+### 2. API
+
+```powershell
+cd server
+npm ci
+Copy-Item .env.example .env
+```
+
+Edit `server/.env`: set `DATABASE_URL` to your local PostgreSQL credentials and
+generate a session secret:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+Apply the migrations and start the API:
+
+```powershell
+npm run migrate
+npm run dev
+```
+
+The API listens on `http://localhost:5000` and answers `GET /health`.
+
+### 3. Client
+
+In a second terminal:
+
+```powershell
+cd client
+npm ci
+Copy-Item .env.example .env
+npm run dev
+```
+
+The client runs on `http://localhost:5173` and calls the API at
+`VITE_API_URL` (`http://localhost:5000/api` by default).
+
+### 4. Verify
+
+Follow [docs/TESTING.md](docs/TESTING.md) for the end-to-end workflow, or run
+the automated suites:
+
+```powershell
+cd server
+npm test        # node:test against the local test database
+
+cd ..\client
+npm run lint
+npm run build
+```
 
 ## Core user flows
 
@@ -97,12 +164,23 @@ Exact commands depend on the actual package scripts and installed dependency ver
 
 ## Deployment
 
-See [GCP deployment guide](docs/DEPLOYMENT_GCP.md). The assessment requires a deployed version on GCP. Verify current pricing and billing requirements before creating resources; GCP services may incur charges.
+See [the deployment guide](docs/DEPLOYMENT_GCP.md) for the architecture and
+[the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) for the exact commands:
+Artifact Registry, Cloud SQL, Secret Manager, the Cloud Run service with the
+Cloud SQL Auth Proxy sidecar, and Firebase Hosting for the client. The API is
+packaged by `server/Dockerfile`.
+
+The assessment requires a deployed version on GCP. Verify current pricing and
+billing requirements before creating resources; GCP services may incur charges.
 
 ## Submission
 
 When complete, submit through Indeed:
-- Deployed application URL
-- GitHub repository URL
+- Deployed application URL — `REPLACE_WITH_VERIFIED_DEPLOYED_URL`
+- API URL — `REPLACE_WITH_VERIFIED_API_URL`
+- GitHub repository URL — https://github.com/SrRecode/team-task-manager
 
-Do not submit placeholder links. Confirm the deployed app works in a fresh browser session first.
+The ready-to-send message and the pre-send checklist are in
+[docs/SUBMISSION_MESSAGE.md](docs/SUBMISSION_MESSAGE.md). Do not submit
+placeholder links. Confirm the deployed app works in a fresh browser session
+first.
