@@ -38,10 +38,15 @@ The assessment requests a GitHub repository containing working frontend/backend 
 
 ## 4. Final links
 
-Fill these in with verified values before submitting:
-
 - **Deployed application:** `REPLACE_WITH_VERIFIED_DEPLOYED_URL`
-- **GitHub repository:** `REPLACE_WITH_VERIFIED_REPOSITORY_URL`
+- **API (for verification):** `REPLACE_WITH_VERIFIED_API_URL`
+- **GitHub repository:** https://github.com/SrRecode/team-task-manager — verified,
+  this is the `origin` remote of the repository.
+
+The two deployed values only exist after the steps in
+[DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) have been run. The complete
+submission message, with a pre-send verification checklist, is in
+[SUBMISSION_MESSAGE.md](SUBMISSION_MESSAGE.md).
 
 Do not submit placeholders.
 
@@ -52,8 +57,9 @@ Hello,
 
 I have completed the Team Task Manager assessment.
 
-Deployed application: [insert verified deployed URL]
-GitHub repository: [insert repository URL]
+Deployed application: REPLACE_WITH_VERIFIED_DEPLOYED_URL
+API (for verification): REPLACE_WITH_VERIFIED_API_URL
+GitHub repository: https://github.com/SrRecode/team-task-manager
 
 The repository includes the frontend, backend, setup instructions, and Git workflow history.
 

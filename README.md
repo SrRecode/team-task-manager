@@ -6,18 +6,25 @@ A full-stack Team Task Manager built for the Glacier Agency Full Stack Developme
 
 ## Status
 
-This repository is a project blueprint and implementation guide. Update the status and deployment URLs only after you verify the corresponding functionality.
+The application is implemented milestone by milestone on feature branches, each
+merged through a pull request. The status below reflects what is merged into
+`main` today.
 
-- [x] Frontend implemented and tested
-- [x] Backend implemented and tested
+- [x] Frontend implemented and tested (React, Tailwind CSS, Vite)
+- [x] Backend implemented and tested (Node.js, Express, Passport.js, sessions)
 - [x] PostgreSQL schema and migrations applied
 - [x] Authentication and authorization tested
 - [x] Team and task workflows tested
-- [x] Due-date reminders (BONUS-01) implemented and tested
-- [x] Email invitation stub (BONUS-03) implemented and tested
+- [x] Bonus features: due-date reminders (BONUS-01), owner/member roles
+      (BONUS-02), email invitation stub (BONUS-03)
 - [x] GitHub feature branches and PR history present
-- [ ] GCP deployment verified
-- [ ] Submission links ready
+- [ ] GCP deployment verified — see [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
+- [ ] Submission links ready — the repository link is verified, the deployed URL
+      follows the deployment
+
+The remaining open items are the steps that need access to a Google Cloud
+project; they are described in [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
+and in [the submission message](docs/SUBMISSION_MESSAGE.md).
 
 ## Documentation map
 
@@ -32,28 +39,39 @@ This repository is a project blueprint and implementation guide. Update the stat
 - [Git and GitHub workflow](docs/GIT_WORKFLOW.md)
 - [Testing and QA](docs/TESTING.md)
 - [Deployment on GCP](docs/DEPLOYMENT_GCP.md)
+- [Deployment runbook (step by step)](docs/DEPLOYMENT_RUNBOOK.md)
+- [Deployment script (one command)](deploy/deploy.ps1)
 - [Environment variables](docs/ENVIRONMENT.md)
 - [AI coding workflow](docs/AI_WORKFLOW.md)
 - [Definition of done](docs/DEFINITION_OF_DONE.md)
 - [Submission checklist](docs/SUBMISSION_CHECKLIST.md)
 
-## Suggested repository layout
+## Repository layout
 
 ```text
-glacier-task-manager/
-├── client/                  # React + Vite + Tailwind
-├── server/                  # Express API
-├── docs/                    # Project and assessment documentation
+team-task-manager/
+├── client/                  # React + Vite + Tailwind frontend
+│   └── firebase.json        # Firebase Hosting configuration
+├── server/                  # Express + Passport API
+│   ├── Dockerfile           # Production image for Cloud Run
+│   └── .dockerignore
+├── deploy/
+│   └── cloud-run-api.yaml   # Cloud Run service + Cloud SQL Proxy sidecar
+├── docs/                    # Project, assessment and deployment documentation
 ├── .github/
+│   ├── workflows/ci.yml     # Server tests, client lint and build
 │   └── pull_request_template.md
 ├── .gitignore
-├── package.json
 └── README.md
 ```
 
+There is no root `package.json`: the client and the server are installed and
+run separately.
+
 ## Prerequisites
 
-Install a supported Node.js LTS version, npm, Git, and PostgreSQL. Verify:
+Install a supported Node.js LTS version (Node 22 is used in CI), npm, Git, and
+PostgreSQL 14 or newer. Verify:
 
 ```powershell
 node -v
@@ -67,11 +85,13 @@ psql --version
 The commands below were run in this repository with Node.js 24 and PostgreSQL 18.
 
 ```powershell
-# 1. Install the dependencies of the API and of the client
+# 1. Clone the repository and install the dependencies of the API and of the client
+git clone https://github.com/SrRecode/team-task-manager.git
+cd team-task-manager
 cd server
-npm install
+npm ci
 cd ..\client
-npm install
+npm ci
 cd ..
 
 # 2. Configure the environment
@@ -174,12 +194,33 @@ because of the invitation.
 
 ## Deployment
 
-See [GCP deployment guide](docs/DEPLOYMENT_GCP.md). The assessment requires a deployed version on GCP. Verify current pricing and billing requirements before creating resources; GCP services may incur charges.
+See [the deployment guide](docs/DEPLOYMENT_GCP.md) for the architecture and
+[the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) for the exact commands:
+Artifact Registry, Cloud SQL, Secret Manager, the Cloud Run service with the
+Cloud SQL Auth Proxy sidecar, and Firebase Hosting for the client. The API is
+packaged by `server/Dockerfile`.
+
+`deploy/deploy.ps1` performs the whole deployment in one command:
+
+```powershell
+.\deploy\deploy.ps1 -Check                                   # check the environment
+.\deploy\deploy.ps1 -ProjectId PROJECT_ID -Region REGION     # deploy everything
+```
+
+The project needs a billing account, and the account needs the permission to
+create the billable resources.
+
+The assessment requires a deployed version on GCP. Verify current pricing and
+billing requirements before creating resources; GCP services may incur charges.
 
 ## Submission
 
 When complete, submit through Indeed:
-- Deployed application URL
-- GitHub repository URL
+- Deployed application URL — `REPLACE_WITH_VERIFIED_DEPLOYED_URL`
+- API URL — `REPLACE_WITH_VERIFIED_API_URL`
+- GitHub repository URL — https://github.com/SrRecode/team-task-manager
 
-Do not submit placeholder links. Confirm the deployed app works in a fresh browser session first.
+The ready-to-send message and the pre-send checklist are in
+[docs/SUBMISSION_MESSAGE.md](docs/SUBMISSION_MESSAGE.md). Do not submit
+placeholder links. Confirm the deployed app works in a fresh browser session
+first.
