@@ -15,6 +15,7 @@ const { AppError } = require('./utils/errors');
 const authRoutes = require('./modules/auth/auth.routes');
 const teamRoutes = require('./modules/teams/team.routes');
 const taskRoutes = require('./modules/tasks/task.routes');
+const reminderRoutes = require('./modules/reminders/reminder.routes');
 
 function createApp() {
   const app = express();
@@ -78,6 +79,7 @@ function createApp() {
   app.use('/api/auth', authRoutes);
   app.use('/api/teams', teamRoutes);
   app.use('/api/tasks', taskRoutes);
+  app.use('/api/reminders', reminderRoutes);
 
   // 8. Not found
   app.use(notFoundHandler);

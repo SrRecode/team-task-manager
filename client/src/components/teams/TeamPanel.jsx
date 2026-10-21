@@ -33,6 +33,12 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
   const [editError, setEditError] = useState('');
   const [editPending, setEditPending] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
+  const [invites, setInvites] = useState([]);
+  const [invitesError, setInvitesError] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteError, setInviteError] = useState('');
+  const [inviteMessage, setInviteMessage] = useState('');
+  const [invitePending, setInvitePending] = useState(false);
 
   const isOwner = team.currentUserRole === 'owner';
 
@@ -61,6 +67,51 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
   useEffect(() => {
     loadMembers();
   }, [loadMembers]);
+
+  const loadInvites = useCallback(() => {
+    return teamsApi
+      .listInvites(team.id)
+      .then((payload) => {
+        setInvites(payload.data.invites.filter((invite) => invite.status === 'pending'));
+        setInvitesError('');
+      })
+      .catch((error) => {
+        setInvitesError(error.message);
+      });
+  }, [team.id]);
+
+  useEffect(() => {
+    loadInvites();
+  }, [loadInvites]);
+
+  async function handleInvite(event) {
+    event.preventDefault();
+    setInviteError('');
+    setInviteMessage('');
+    setInvitePending(true);
+    try {
+      await teamsApi.createInvite(team.id, inviteEmail);
+      setInviteEmail('');
+      setInviteMessage(
+        'The invitation is recorded. No email is sent in this build: the member joins when the invited address registers or signs in.'
+      );
+      await loadInvites();
+    } catch (error) {
+      setInviteError(error.message);
+    } finally {
+      setInvitePending(false);
+    }
+  }
+
+  async function handleRevokeInvite(inviteId) {
+    setInvitesError('');
+    try {
+      await teamsApi.revokeInvite(team.id, inviteId);
+      await loadInvites();
+    } catch (error) {
+      setInvitesError(error.message);
+    }
+  }
 
   async function handleAddMember(event) {
     event.preventDefault();
@@ -163,6 +214,43 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
         </p>
       ) : null}
 
+      <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-ink-muted">
+        Pending invitations
+      </h3>
+
+      {invitesError ? (
+        <p role="alert" className="mt-3 text-sm text-coral">
+          {invitesError}
+        </p>
+      ) : invites.length === 0 ? (
+        <p className="mt-3 text-sm text-ink-muted">
+          No pending invitation. Invite somebody by email below.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-line">
+          {invites.map((invite) => (
+            <li key={invite.id} className="flex items-center justify-between py-3">
+              <div>
+                <p className="text-sm font-medium text-ink">{invite.email}</p>
+                <p className="text-xs text-ink-muted">
+                  Invited by {invite.invitedByName ?? 'a team member'} · invitation recorded, no
+                  email sent
+                </p>
+              </div>
+              {isOwner ? (
+                <button
+                  type="button"
+                  onClick={() => handleRevokeInvite(invite.id)}
+                  className="text-xs font-medium text-plum-soft underline underline-offset-4 hover:text-coral"
+                >
+                  Revoke
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {isOwner ? (
         <>
           <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-ink-muted">
@@ -193,6 +281,46 @@ export default function TeamPanel({ team, currentUserId, onChanged, onDeleted })
           {addError ? (
             <p role="alert" className="mt-2 text-sm text-coral">
               {addError}
+            </p>
+          ) : null}
+
+          <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-ink-muted">
+            Invite by email
+          </h3>
+          <p className="mt-1 text-xs text-ink-muted">
+            Use this for somebody who has no account yet. The invitation is a record in the
+            database, because this build has no mail server.
+          </p>
+          <form onSubmit={handleInvite} className="mt-3 flex flex-wrap gap-2">
+            <label htmlFor="invite-email" className="sr-only">
+              Email address to invite
+            </label>
+            <input
+              id="invite-email"
+              name="email"
+              type="email"
+              required
+              value={inviteEmail}
+              onChange={(event) => setInviteEmail(event.target.value)}
+              placeholder="invitee@example.com"
+              className="min-w-0 flex-1 rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+            />
+            <button
+              type="submit"
+              disabled={invitePending}
+              className="rounded-lg border border-plum px-4 py-2 text-sm font-semibold text-plum-soft transition hover:bg-plum/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {invitePending ? 'Recording…' : 'Record invitation'}
+            </button>
+          </form>
+          {inviteError ? (
+            <p role="alert" className="mt-2 text-sm text-coral">
+              {inviteError}
+            </p>
+          ) : null}
+          {inviteMessage ? (
+            <p role="status" className="mt-2 text-sm text-ink-muted">
+              {inviteMessage}
             </p>
           ) : null}
 

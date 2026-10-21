@@ -48,11 +48,11 @@ The task is to build a Team Task Manager web application.
 
 These are optional in the assessment and must not delay the mandatory features.
 
-| ID | Bonus | Minimum viable implementation |
-|---|---|---|
-| BONUS-01 | Task due-date reminders (login only) | In-app reminder display for authenticated user; avoid unnecessary email infrastructure |
-| BONUS-02 | Role-based access, e.g. only team creators can delete teams | Owner/member roles and server-side permission checks |
-| BONUS-03 | Invite members by email (stubbed; SMTP not required) | Validate email and create a clearly labeled invite stub or pending invitation record |
+| ID | Bonus | Minimum viable implementation | Status in this repository |
+|---|---|---|---|
+| BONUS-01 | Task due-date reminders (login only) | In-app reminder display for authenticated user; avoid unnecessary email infrastructure | Implemented: `GET /api/reminders` and the **Reminders** panel on the dashboard (`server/src/modules/reminders/`, `client/src/components/reminders/ReminderPanel.jsx`), tested in `server/test/reminders.test.js` |
+| BONUS-02 | Role-based access, e.g. only team creators can delete teams | Owner/member roles and server-side permission checks | Implemented: the `role` column of `team_members`, the `requireTeamOwner` middleware and the owner/member checks of the team routes, tested in `server/test/teams.test.js` |
+| BONUS-03 | Invite members by email (stubbed; SMTP not required) | Validate email and create a clearly labeled invite stub or pending invitation record | Implemented: `POST /api/teams/:teamId/invites` with the `team_invites` table, the response labels the stub (`delivery: "stub"`, `notificationSent: false`) and the invitation becomes a membership when the address registers or signs in, tested in `server/test/invites.test.js` |
 
 ## 4. Assessment exclusions and assumptions
 

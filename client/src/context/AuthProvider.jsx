@@ -5,6 +5,7 @@ import { AuthContext } from './auth-context';
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [status, setStatus] = useState('loading');
+  const [acceptedInvites, setAcceptedInvites] = useState([]);
 
   /**
    * Asks the API who the current user is. A 401 is an expected outcome for a
@@ -45,6 +46,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (credentials) => {
     const payload = await authApi.login(credentials);
     setUser(payload.data.user);
+    setAcceptedInvites(payload.data.acceptedInvites ?? []);
     setStatus('authenticated');
     return payload.data.user;
   }, []);
@@ -52,6 +54,7 @@ export function AuthProvider({ children }) {
   const register = useCallback(async (details) => {
     const payload = await authApi.register(details);
     setUser(payload.data.user);
+    setAcceptedInvites(payload.data.acceptedInvites ?? []);
     setStatus('authenticated');
     return payload.data.user;
   }, []);
@@ -61,13 +64,25 @@ export function AuthProvider({ children }) {
       await authApi.logout();
     } finally {
       setUser(null);
+      setAcceptedInvites([]);
       setStatus('unauthenticated');
     }
   }, []);
 
+  const dismissAcceptedInvites = useCallback(() => setAcceptedInvites([]), []);
+
   const value = useMemo(
-    () => ({ user, status, login, register, logout, refresh }),
-    [user, status, login, register, logout, refresh]
+    () => ({
+      user,
+      status,
+      login,
+      register,
+      logout,
+      refresh,
+      acceptedInvites,
+      dismissAcceptedInvites,
+    }),
+    [user, status, login, register, logout, refresh, acceptedInvites, dismissAcceptedInvites]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
