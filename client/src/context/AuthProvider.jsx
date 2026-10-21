@@ -7,21 +7,6 @@ export function AuthProvider({ children }) {
   const [status, setStatus] = useState('loading');
   const [acceptedInvites, setAcceptedInvites] = useState([]);
 
-  /**
-   * Asks the API who the current user is. A 401 is an expected outcome for a
-   * visitor who is not signed in, so it is not treated as an app failure.
-   */
-  const refresh = useCallback(async () => {
-    try {
-      const payload = await authApi.me();
-      setUser(payload.data.user);
-      setStatus('authenticated');
-    } catch {
-      setUser(null);
-      setStatus('unauthenticated');
-    }
-  }, []);
-
   useEffect(() => {
     let active = true;
 
@@ -78,11 +63,10 @@ export function AuthProvider({ children }) {
       login,
       register,
       logout,
-      refresh,
       acceptedInvites,
       dismissAcceptedInvites,
     }),
-    [user, status, login, register, logout, refresh, acceptedInvites, dismissAcceptedInvites]
+    [user, status, login, register, logout, acceptedInvites, dismissAcceptedInvites]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

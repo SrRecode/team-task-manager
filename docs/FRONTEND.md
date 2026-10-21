@@ -10,28 +10,38 @@
 
 Use the Tailwind setup appropriate to the installed major version; do not mix v3 and v4 configuration instructions.
 
-## 2. Suggested client structure
+## 2. Client structure
+
+The client of this repository is built like this:
 
 ```text
 client/src/
 ├── api/
-│   ├── http.js
+│   ├── http.js            # the fetch helper: base URL, timeout, ApiError
 │   ├── auth.api.js
 │   ├── teams.api.js
-│   └── tasks.api.js
+│   ├── tasks.api.js
+│   └── reminders.api.js
 ├── components/
-│   ├── layout/
-│   ├── ui/
-│   ├── teams/
-│   └── tasks/
-├── context/AuthContext.jsx
-├── hooks/
+│   ├── layout/AppShell.jsx
+│   ├── reminders/ReminderPanel.jsx
+│   ├── teams/TeamPanel.jsx
+│   ├── teams/TeamSummary.jsx
+│   └── tasks/TaskFilters.jsx
+│   └── tasks/TaskList.jsx
+│   └── tasks/TaskModal.jsx
+├── context/
+│   ├── auth-context.js    # the React context of the signed in user
+│   ├── AuthProvider.jsx
+│   ├── useAuth.js
+│   ├── toast-context.js   # the React context of the success messages
+│   ├── ToastProvider.jsx
+│   └── useToast.js
+├── lib/validation.js      # the rules of the forms, in the browser
 ├── pages/
-│   ├── LoginPage.jsx
-│   ├── RegisterPage.jsx
+│   ├── AuthPages.jsx      # LoginPage and RegisterPage
 │   ├── DashboardPage.jsx
-│   ├── TeamsPage.jsx
-│   └── NotFoundPage.jsx
+│   └── TeamsPage.jsx
 ├── routes/ProtectedRoute.jsx
 ├── App.jsx
 └── main.jsx
@@ -49,7 +59,7 @@ client/src/
 ### Dashboard
 - Sidebar or compact navigation.
 - Current user information and logout.
-- Team selector/list.
+- Team summary next to the task list (name, role, number of members).
 - Task list/table.
 - Search input and team/assignee/status filters.
 - Create task action.
@@ -64,7 +74,7 @@ Fields:
 - Status.
 - Due date (optional).
 
-The same form can support create and edit modes. Disable submit while saving, show field errors, and refresh the relevant task data after success.
+The same form can support create and edit modes. Disable submit while saving, show field errors, and refresh the relevant task data after success. The form of this repository validates the fields in the browser (`client/src/lib/validation.js`), keeps the server validation as the authority, and shows the field errors of the API next to the input they belong to.
 
 ### Teams
 - List teams the current user belongs to.
@@ -112,6 +122,17 @@ export async function request(path, options = {}) {
 
 Adapt this helper to the actual API response contract and CSRF strategy. Do not assume every response has a JSON body.
 
+The helper of this repository (`client/src/api/http.js`) does that:
+
+- it aborts the request after 15 seconds, so a hanging API cannot leave the
+  page in its loading state,
+- it maps a request that never reached the API to a `NETWORK_ERROR` and a
+  request that timed out to a `REQUEST_TIMEOUT`, both with a message the user
+  can act on,
+- it throws an `ApiError` with the status code, the machine readable error
+  code and the field details of the API, so a form can show the message of the
+  server next to the field that caused it.
+
 ## 5. Authentication state
 
 - On app startup, request `/auth/me`.
@@ -132,12 +153,15 @@ Adapt this helper to the actual API response contract and CSRF strategy. Do not 
 
 ## 7. Frontend acceptance checklist
 
-- [ ] Login and registration connect to real APIs.
-- [ ] Session remains valid across page refresh as designed.
-- [ ] Dashboard lists only data returned by authorized API endpoints.
-- [ ] Team creation and member actions work.
-- [ ] Task create/edit/delete work.
-- [ ] Team and assignee filters work together.
-- [ ] Errors are visible and actionable.
-- [ ] Layout works at mobile and desktop widths.
-- [ ] Production API URL is configured correctly.
+The state of the client of this repository, verified in the browser and with
+the live smoke script (`server/scripts/smoke-live.js`):
+
+- [x] Login and registration connect to real APIs.
+- [x] Session remains valid across page refresh as designed.
+- [x] Dashboard lists only data returned by authorized API endpoints.
+- [x] Team creation and member actions work.
+- [x] Task create/edit/delete work.
+- [x] Team and assignee filters work together.
+- [x] Errors are visible and actionable.
+- [x] Layout works at mobile and desktop widths.
+- [x] Production API URL is configured with `VITE_API_URL` at build time.

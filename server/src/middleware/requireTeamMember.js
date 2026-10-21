@@ -8,7 +8,7 @@ const { notFound } = require('../utils/errors');
  *
  * The lookup is scoped to the caller's own membership, so a team the caller
  * cannot access is reported as 404 rather than 403. That keeps the existence
- * of somebody else's team concealed (docs/API.md section 5).
+ * of somebody else's team concealed (docs/API.md section 4).
  *
  * On success `req.team` holds the team and `req.teamRole` the caller's role.
  */

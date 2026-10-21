@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
+import { hasErrors, validateLogin, validateRegister } from '../lib/validation';
 
 /**
  * Shared layout for the sign in and sign up screens.
@@ -26,12 +27,12 @@ export function AuthShell({ title, subtitle, children, footer }) {
 }
 
 /**
- * Renders a single field error, if the API reported one.
+ * Renders a single field error, if the API or the browser reported one.
  */
-export function FieldError({ error }) {
+export function FieldError({ error, id }) {
   if (!error) return null;
   return (
-    <p role="alert" className="mt-1 text-sm text-coral">
+    <p id={id} role="alert" className="mt-1 text-sm text-coral">
       {error}
     </p>
   );
@@ -61,6 +62,9 @@ export function SubmitButton({ pending, children }) {
   );
 }
 
+const inputClass =
+  'mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum';
+
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -77,11 +81,18 @@ export function LoginPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
-    setFieldErrors({});
+
+    // The browser checks the form first, the API stays the authority: a field
+    // that passes here can still be rejected by the server.
+    const errors = validateLogin({ email, password });
+    setFieldErrors(errors);
+
+    if (hasErrors(errors)) return;
+
     setPending(true);
 
     try {
-      await login({ email, password });
+      await login({ email: email.trim(), password });
       navigate(destination, { replace: true });
     } catch (requestError) {
       setError(requestError.message);
@@ -122,10 +133,15 @@ export function LoginPage() {
             autoComplete="email"
             required
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setFieldErrors((current) => ({ ...current, email: undefined }));
+            }}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+            className={inputClass}
           />
-          <FieldError error={fieldErrors.email} />
+          <FieldError id="email-error" error={fieldErrors.email} />
         </div>
 
         <div className="mb-4">
@@ -139,10 +155,15 @@ export function LoginPage() {
             autoComplete="current-password"
             required
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setFieldErrors((current) => ({ ...current, password: undefined }));
+            }}
+            aria-invalid={Boolean(fieldErrors.password)}
+            aria-describedby={fieldErrors.password ? 'password-error' : undefined}
+            className={inputClass}
           />
-          <FieldError error={fieldErrors.password} />
+          <FieldError id="password-error" error={fieldErrors.password} />
         </div>
 
         <SubmitButton pending={pending}>Sign in</SubmitButton>
@@ -165,11 +186,18 @@ export function RegisterPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     setError('');
-    setFieldErrors({});
+
+    // The browser checks the form first, the API stays the authority: a field
+    // that passes here can still be rejected by the server.
+    const errors = validateRegister({ name, email, password });
+    setFieldErrors(errors);
+
+    if (hasErrors(errors)) return;
+
     setPending(true);
 
     try {
-      await register({ name, email, password });
+      await register({ name: name.trim(), email: email.trim(), password });
       navigate('/', { replace: true });
     } catch (requestError) {
       setError(requestError.message);
@@ -210,10 +238,15 @@ export function RegisterPage() {
             autoComplete="name"
             required
             value={name}
-            onChange={(event) => setName(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+            onChange={(event) => {
+              setName(event.target.value);
+              setFieldErrors((current) => ({ ...current, name: undefined }));
+            }}
+            aria-invalid={Boolean(fieldErrors.name)}
+            aria-describedby={fieldErrors.name ? 'name-error' : undefined}
+            className={inputClass}
           />
-          <FieldError error={fieldErrors.name} />
+          <FieldError id="name-error" error={fieldErrors.name} />
         </div>
 
         <div className="mb-4">
@@ -227,10 +260,15 @@ export function RegisterPage() {
             autoComplete="email"
             required
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setFieldErrors((current) => ({ ...current, email: undefined }));
+            }}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+            className={inputClass}
           />
-          <FieldError error={fieldErrors.email} />
+          <FieldError id="email-error" error={fieldErrors.email} />
         </div>
 
         <div className="mb-4">
@@ -245,11 +283,16 @@ export function RegisterPage() {
             required
             minLength={8}
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-1 w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum"
+            onChange={(event) => {
+              setPassword(event.target.value);
+              setFieldErrors((current) => ({ ...current, password: undefined }));
+            }}
+            aria-invalid={Boolean(fieldErrors.password)}
+            aria-describedby={fieldErrors.password ? 'password-error' : undefined}
+            className={inputClass}
           />
           <p className="mt-1 text-xs text-ink-muted">At least 8 characters.</p>
-          <FieldError error={fieldErrors.password} />
+          <FieldError id="password-error" error={fieldErrors.password} />
         </div>
 
         <SubmitButton pending={pending}>Create account</SubmitButton>

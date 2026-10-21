@@ -4,9 +4,11 @@ import ReminderPanel from '../components/reminders/ReminderPanel';
 import TaskFilters from '../components/tasks/TaskFilters';
 import TaskList from '../components/tasks/TaskList';
 import TaskModal from '../components/tasks/TaskModal';
+import TeamSummary from '../components/teams/TeamSummary';
 import { tasksApi } from '../api/tasks.api';
 import { teamsApi } from '../api/teams.api';
 import { useAuth } from '../context/useAuth';
+import { useToast } from '../context/useToast';
 
 const EMPTY_FILTERS = { teamId: '', assigneeId: '', status: '', search: '' };
 
@@ -27,9 +29,11 @@ function mergeMembers(lists) {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { show } = useToast();
 
   const [teams, setTeams] = useState([]);
   const [members, setMembers] = useState([]);
+  const [memberCounts, setMemberCounts] = useState({});
   const [tasks, setTasks] = useState([]);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [teamsLoading, setTeamsLoading] = useState(true);
@@ -54,13 +58,19 @@ export default function DashboardPage() {
           list.map((team) =>
             teamsApi
               .listMembers(team.id)
-              .then((memberPayload) => memberPayload.data.members)
-              .catch(() => [])
+              .then((memberPayload) => ({
+                teamId: team.id,
+                members: memberPayload.data.members,
+              }))
+              .catch(() => ({ teamId: team.id, members: [] }))
           )
         );
       })
-      .then((memberLists) => {
-        setMembers(mergeMembers(memberLists));
+      .then((entries) => {
+        setMembers(mergeMembers(entries.map((entry) => entry.members)));
+        setMemberCounts(
+          Object.fromEntries(entries.map((entry) => [entry.teamId, entry.members.length]))
+        );
       })
       .catch((error) => {
         setTeamsError(error.message);
@@ -120,8 +130,9 @@ export default function DashboardPage() {
     setEditingTask(null);
   }
 
-  function handleSaved() {
+  function handleSaved({ action } = {}) {
     closeModal();
+    show(action === 'updated' ? 'The task is updated.' : 'The task is created.');
     loadTasks().then(() => setTaskVersion((version) => version + 1));
   }
 
@@ -131,6 +142,7 @@ export default function DashboardPage() {
       await tasksApi.remove(task.id);
       await loadTasks();
       setTaskVersion((version) => version + 1);
+      show(`The task “${task.title}” is deleted.`);
     } catch (error) {
       setActionError(error.message);
     }
@@ -190,30 +202,36 @@ export default function DashboardPage() {
         </p>
       ) : null}
 
-      <section className="mt-6">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">Tasks</h3>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start">
+        <section>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">Tasks</h3>
 
-        <div className="mt-3">
-          {tasksLoading ? (
-            <p className="rounded-xl border border-line bg-surface px-4 py-10 text-center text-sm text-ink-muted">
-              Loading your tasks…
-            </p>
-          ) : tasksError ? (
-            <p role="alert" className="rounded-xl border border-line bg-surface px-4 py-10 text-center text-sm text-coral">
-              {tasksError}
-            </p>
-          ) : (
-            <TaskList
-              tasks={tasks}
-              teams={teams}
-              currentUserId={user?.id}
-              filtered={hasFilters}
-              onEdit={openEditModal}
-              onDelete={handleDelete}
-            />
-          )}
-        </div>
-      </section>
+          <div className="mt-3">
+            {tasksLoading ? (
+              <p className="rounded-xl border border-line bg-surface px-4 py-10 text-center text-sm text-ink-muted">
+                Loading your tasks…
+              </p>
+            ) : tasksError ? (
+              <p role="alert" className="rounded-xl border border-line bg-surface px-4 py-10 text-center text-sm text-coral">
+                {tasksError}
+              </p>
+            ) : (
+              <TaskList
+                tasks={tasks}
+                teams={teams}
+                currentUserId={user?.id}
+                filtered={hasFilters}
+                onEdit={openEditModal}
+                onDelete={handleDelete}
+              />
+            )}
+          </div>
+        </section>
+
+        <aside className="lg:sticky lg:top-6">
+          <TeamSummary teams={teams} memberCounts={memberCounts} />
+        </aside>
+      </div>
 
       {modalOpen ? (
         <TaskModal
