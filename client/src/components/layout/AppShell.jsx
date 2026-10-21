@@ -11,7 +11,7 @@ export default function AppShell({ children }) {
   return (
     <div className="min-h-screen bg-paper">
       <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-plum-soft">
               Glacier Agency
@@ -19,7 +19,7 @@ export default function AppShell({ children }) {
             <h1 className="text-lg font-semibold text-ink">Team Task Manager</h1>
           </div>
 
-          <nav className="flex items-center gap-4">
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Link
               to="/"
               className="text-sm font-medium text-ink-muted underline underline-offset-4 hover:text-ink"
