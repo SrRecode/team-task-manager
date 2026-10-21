@@ -2,7 +2,11 @@
 
 Base path: `/api`
 
-All endpoints return JSON unless a successful delete uses `204 No Content`. Every endpoint except the authentication endpoints intended to establish/recover session state must require a valid authenticated session. The current-user endpoint requires authentication.
+Every endpoint below `/api` requires a valid authenticated session, except the
+two routes that establish or recover that session: `POST /auth/register` and
+`POST /auth/login`. The health endpoint is outside `/api` and never requires a
+session. All endpoints return JSON unless a successful delete uses
+`204 No Content`.
 
 ## 1. Common response conventions
 
@@ -31,7 +35,31 @@ Error example:
 
 Do not expose internal SQL errors, stack traces, password hashes, session identifiers, or secrets.
 
-## 2. Authentication
+## 2. Health
+
+The health endpoint is the only route outside `/api`. It is used by the
+deployment checks of Cloud Run and by the release smoke test.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/health` | No | Liveness of the API |
+| GET | `/health?database=true` | No | Liveness of the API and of the database |
+
+```json
+{
+  "status": "ok",
+  "database": "up"
+}
+```
+
+- Without `database=true` the endpoint answers `200 { "status": "ok" }` as
+  soon as the process is up.
+- With `database=true` the endpoint runs `SELECT 1` against the configured
+  PostgreSQL database and answers `200 { "status": "ok", "database": "up" }`.
+- If the database cannot be reached the endpoint answers
+  `503 { "status": "degraded", "database": "down" }`.
+
+## 3. Authentication
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -67,7 +95,7 @@ Rules:
 - Regenerate session ID after authentication.
 - Never return `password_hash`.
 
-## 3. Teams
+## 4. Teams
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -149,7 +177,7 @@ Create invitation response:
 - Only the owner may create and revoke an invitation; any member may read the
   list.
 
-## 4. Tasks
+## 5. Tasks
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -184,7 +212,7 @@ Supported filters:
 
 Task update should allow only documented fields. Verify the task exists and is accessible before mutation. If `teamId` is mutable, validate all related team and assignee rules; alternatively, keep a task's team immutable to simplify safe behavior.
 
-## 5. Reminders (BONUS-01)
+## 6. Reminders (BONUS-01)
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
@@ -225,7 +253,7 @@ so the server and the database always agree on what "today" is.
 - A task without a due date and a finished task are never a reminder.
 - The reminder only contains tasks of the teams the caller belongs to.
 
-## 6. HTTP status guidance
+## 7. HTTP status guidance
 
 | Status | Use |
 |---|---|
@@ -239,7 +267,7 @@ so the server and the database always agree on what "today" is.
 | 409 | Duplicate email or conflicting membership |
 | 500 | Unexpected server error |
 
-## 7. Security requirements for every route
+## 8. Security requirements for every route
 
 - Validate path parameters, query parameters and request body.
 - Require authentication and resource-level authorization.

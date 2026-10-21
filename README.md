@@ -10,7 +10,9 @@ The application is implemented milestone by milestone on feature branches, each
 merged through a pull request. The status below reflects what is merged into
 `main` today.
 
-- [x] Frontend implemented and tested (React, Tailwind CSS, Vite)
+- [x] Frontend implemented (React, Tailwind CSS, Vite); the API is covered by
+      90 automated tests, the client by the live smoke script and the manual
+      test plan
 - [x] Backend implemented and tested (Node.js, Express, Passport.js, sessions)
 - [x] PostgreSQL schema and migrations applied
 - [x] Authentication and authorization tested
@@ -78,12 +80,17 @@ The deployment itself is one command:
 ```text
 team-task-manager/
 ├── client/                  # React + Vite + Tailwind frontend
+│   ├── src/                 # Pages, components, API client and contexts
 │   └── firebase.json        # Firebase Hosting configuration
 ├── server/                  # Express + Passport API
+│   ├── src/                 # App, configuration, middleware and modules
+│   ├── test/                # Automated tests (node:test + supertest)
+│   ├── scripts/             # Live smoke test against a deployed application
 │   ├── Dockerfile           # Production image for Cloud Run
 │   └── .dockerignore
 ├── deploy/
-│   └── cloud-run-api.yaml   # Cloud Run service + Cloud SQL Proxy sidecar
+│   ├── cloud-run-api.yaml   # Cloud Run service + Cloud SQL Proxy sidecar
+│   └── deploy.ps1           # One command that deploys everything
 ├── docs/                    # Project, assessment and deployment documentation
 ├── .github/
 │   ├── workflows/ci.yml     # Server tests, client lint and build
@@ -106,6 +113,19 @@ npm -v
 git --version
 psql --version
 ```
+
+The deployment of the frontend needs the **Firebase CLI**, which is not a
+dependency of this repository. Install it once, globally:
+
+```powershell
+npm install -g firebase-tools
+firebase --version
+```
+
+Without a global installation the same commands work through `npx`, for
+example `npx firebase-tools deploy --only hosting --project PROJECT_ID`. The
+script `deploy/deploy.ps1` checks for the CLI and prints this instruction when
+it is missing.
 
 ## Local setup
 
@@ -136,23 +156,17 @@ cd ..\client
 npm run dev      # http://localhost:5173
 ```
 
+`npm run dev` in `server/` starts the same API with the file watcher of Node,
+and `npm run preview` in `client/` serves the production build locally.
+
 The API refuses to start without `DATABASE_URL` and `SESSION_SECRET`. Generate a
 session secret with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
 
 ### Tests, lint and build
 
-```powershell
-cd server
-npm test         # 90 tests: auth, teams, tasks, invitations and reminders, against a separate test database
-
-cd ..\client
-npm run lint
-npm run build
-```
-
 The test suite needs its own PostgreSQL database. It derives the name
 `glacier_tasks_test` from `DATABASE_URL` and creates the tables itself, so
-create that database once:
+create that database **before** the first test run:
 
 ```powershell
 createdb glacier_tasks_test
@@ -160,6 +174,15 @@ createdb glacier_tasks_test
 
 The tables are truncated before every test, so the test database must not be
 used for anything else. Set `TEST_DATABASE_NAME` to use a different name.
+
+```powershell
+cd server
+npm test         # 90 tests: auth, teams, tasks, invitations and reminders, against glacier_tasks_test
+
+cd ..\client
+npm run lint
+npm run build
+```
 
 ### The application in the browser
 
@@ -221,6 +244,27 @@ because of the invitation.
 
 ## Deployment
 
+### The intended architecture
+
+The production topology of this project is three services on Google Cloud:
+
+| Part | Service | Address |
+|---|---|---|
+| Frontend | Firebase Hosting | `https://glacier-team-task-manager.web.app` |
+| API | Cloud Run (Express, `server/Dockerfile`) | `https://<the service>.run.app/api` |
+| Database | Cloud SQL for PostgreSQL | private, reached through the Cloud SQL Auth Proxy |
+
+The client and the API are **different origins**. The address of the API is
+baked into the browser bundle with `VITE_API_URL` at build time, the API
+allows the origin of the frontend in `CLIENT_ORIGIN`, and the session cookie
+is therefore `SameSite=None; Secure; HttpOnly`.
+
+Firebase Hosting cannot forward a request to an arbitrary external URL — only
+to a Cloud Function or a Cloud Run container of the same project — so the
+`/api/**` rewrite of an external address does not work and is not part of
+`client/firebase.json`. The only rewrite of the Hosting configuration is the
+single page application rewrite, `**` to `/index.html`.
+
 See [the deployment guide](docs/DEPLOYMENT_GCP.md) for the architecture and
 [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) for the exact commands:
 Artifact Registry, Cloud SQL, Secret Manager, the Cloud Run service with the
@@ -237,9 +281,12 @@ packaged by `server/Dockerfile`.
 The project needs a billing account, and the account needs the permission to
 create the billable resources.
 
+### What is deployed today
+
 The frontend of this project is deployed on Firebase Hosting:
 <https://glacier-team-task-manager.web.app>. It was deployed with the
-Application Default Credentials of `gcloud`, without a browser session:
+Application Default Credentials of `gcloud`, without a browser session. The
+`firebase` CLI has to be installed once (`npm install -g firebase-tools`):
 
 ```powershell
 cd client
@@ -249,17 +296,21 @@ npm run build
 firebase deploy --only hosting --project glacier-team-task-manager --non-interactive
 ```
 
-The API is **not** on the same origin as the client. Firebase Hosting cannot
-forward a request to an arbitrary external URL — only to a Cloud Function or a
-Cloud Run container of the same project — so the client calls the API on its
-own address, and the API allows the origin of the frontend in `CLIENT_ORIGIN`.
-The session cookie is therefore `SameSite=None; Secure; HttpOnly`.
-
 The API and the PostgreSQL database run in the local stack of the developer
 machine and are published through a Cloudflare quick tunnel, because Cloud Run
 and Cloud SQL need a billing account that the assessment account does not have.
 The exact commands, the verified results and the blockers are in
 [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0 and § 0.2.
+
+When the API runs on Cloud Run, the client is rebuilt with the address of the
+service and deployed again; nothing else changes:
+
+```powershell
+cd client
+$env:VITE_API_URL = "https://<the service>.run.app/api"
+npm run build
+firebase deploy --only hosting --project glacier-team-task-manager --non-interactive
+```
 
 The assessment requires a deployed version on GCP. Verify current pricing and
 billing requirements before creating resources; GCP services may incur charges.
