@@ -1,13 +1,16 @@
 /**
  * The base URL of the API.
  *
- * In production the client is served by Firebase Hosting, and Hosting forwards
- * every call of `/api/**` to the Cloud Run service (see client/firebase.json).
- * The call stays on the same origin, so the session cookie is a first-party
- * cookie and no CORS handshake is needed.
+ * `VITE_API_URL` holds the public address of the API and is baked into the
+ * browser bundle, so it has to be set before the build. Without it the client
+ * calls `/api` on its own origin, which only works when the hosting service
+ * forwards that path to the API.
  *
- * `VITE_API_URL` overrides that, which is what the local development and a
- * deployment on another host use.
+ * Firebase Hosting forwards `/api/**` to a Cloud Run service of the same
+ * project, but it does not forward it to an arbitrary external URL. When the
+ * API is published on another host, the client therefore calls it cross-origin:
+ * the API allows the origin of the frontend, and the session cookie is
+ * `SameSite=None; Secure`.
  */
 const API_URL =
   import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '/api');

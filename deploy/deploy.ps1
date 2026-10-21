@@ -551,18 +551,14 @@ if (-not $SkipClient) {
     Invoke-Firebase 'projects:addfirebase' $ProjectId '--non-interactive' | Out-Null
   }
 
-  # The client calls the API on its own origin. Firebase Hosting forwards
-  # /api/** to the Cloud Run service, so the session cookie stays a first-party
-  # cookie. The target of the rewrite is written here, after the address of the
-  # API is known.
-  $firebaseJson = "$RepoRoot\client\firebase.json"
-  $firebaseJsonOriginal = Get-Content -LiteralPath $firebaseJson -Raw
-  $apiHost = ([uri]$apiUrl).Authority
-  $patched = $firebaseJsonOriginal -replace 'https://API_HOST/api/\*\*', "https://$apiHost/api/**"
-  Set-Content -LiteralPath $firebaseJson -Value $patched -Encoding utf8
-
+  # The client calls the API on the address of the API. Firebase Hosting does
+  # not forward a request to an arbitrary external URL, so the address of the
+  # API is baked into the browser bundle with VITE_API_URL. The API allows the
+  # origin of the frontend in CLIENT_ORIGIN, and the session cookie is
+  # SameSite=None; Secure, because the two are different sites.
   Push-Location "$RepoRoot\client"
   try {
+    $env:VITE_API_URL = "$apiUrl/api"
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw 'The client build failed.' }
 
@@ -577,7 +573,6 @@ if (-not $SkipClient) {
     }
   } finally {
     Pop-Location
-    Set-Content -LiteralPath $firebaseJson -Value $firebaseJsonOriginal -Encoding utf8
   }
 }
 

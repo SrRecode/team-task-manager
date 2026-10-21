@@ -5,42 +5,53 @@ REQ-27 asks for two links, sent through Indeed:
 | Link | Value | State |
 |---|---|---|
 | GitHub repository | `https://github.com/SrRecode/team-task-manager` | **verified** — the `origin` remote of this checkout |
-| Deployed application | `REPLACE_WITH_VERIFIED_DEPLOYED_URL` | **pending** — the site only exists after the GCP deployment |
+| Deployed application | `https://glacier-team-task-manager.web.app` | **verified** on 21 October 2026 — a fresh account registers, signs in, creates a team and a task, filters the tasks and signs out again |
+| API (for verification) | `https://standings-exit-trainer-terminal.trycloudflare.com/api` | **verified** — the API of the deployed application, with the PostgreSQL database behind it |
 
-The deployed URL is the only missing value, and it cannot be filled in from the
-repository: it exists only after the Cloud Run and Firebase Hosting steps of
-[the deployment runbook](DEPLOYMENT_RUNBOOK.md) have been executed.
+The deployed application is on Firebase Hosting. The API runs in the local
+stack of the developer machine and is published through a Cloudflare quick
+tunnel, because Cloud Run and Cloud SQL need a billing account that the
+assessment account does not have; the findings are in
+[the deployment runbook](DEPLOYMENT_RUNBOOK.md) § 0.0. The API address is the
+address of the tunnel and changes when the tunnel is restarted; the address of
+the application does not.
 
-## 1. Fill in the deployed URL
+## 1. How the links were verified
 
-After step 9 and step 10 of the runbook:
+On 21 October 2026, against `https://glacier-team-task-manager.web.app`:
 
-```powershell
-gcloud run services describe glacier-api --region REGION --format="value(status.url)"
-```
+| Check | Result |
+|---|---|
+| The frontend opens | 200, the sign-in screen |
+| Register a new account | 201, the session cookie is set |
+| The flags of the cookie | `HttpOnly`, `Secure`, `SameSite=None`, `Path=/` |
+| Sign out, then a protected route | 204 and 401 |
+| Sign in again | 200, the session is restored |
+| Create a team, add a member | 201 and 201, the team has 2 members |
+| Create a task, assign it to the member | 201 |
+| Filter by team, by assignee, by status, by search term | 1, 1, 0 for another status, 1 and 0 for a term that does not match |
+| Update the status of the task | 200, the new status is shown |
+| Sign out | 204, `/teams` redirects to the sign-in screen |
+| The database behind the API | `{"status":"ok","database":"up"}` |
+| The sessions | rows in the `session` table of PostgreSQL |
 
-The frontend URL is `https://PROJECT_ID.web.app` and the API URL is the output
-of the command above. Replace every occurrence of
-`REPLACE_WITH_VERIFIED_DEPLOYED_URL` in this file, in
-`docs/SUBMISSION_CHECKLIST.md` and in `README.md` with the frontend URL.
-
-Keep the API URL in the README as well, so the evaluator can check that the
-backend is live.
+The step by step result, with the raw output, is in
+[TESTING.md](TESTING.md) § "The live run of 21 October 2026".
 
 ## 2. Verify before sending
 
 Do not send the message before every line below is true. Each one is a
 requirement from `docs/TESTING.md` § 4 and `docs/SUBMISSION_CHECKLIST.md`.
 
-- [ ] The frontend URL opens in a **private window** that has never visited the
+- [x] The frontend URL opens in a **private window** that has never visited the
       site, and shows the sign-in screen.
-- [ ] A new account can register, sign out and sign in again.
-- [ ] The session cookie exists in the developer tools with `HttpOnly`,
+- [x] A new account can register, sign out and sign in again.
+- [x] The session cookie exists in the developer tools with `HttpOnly`,
       `Secure` and `SameSite=None`.
-- [ ] A team can be created, a member added, a task created and assigned.
-- [ ] The filters by team, assignee, status and search term work.
-- [ ] A request to a protected route without the cookie answers `401`.
-- [ ] The browser console shows no error, and the API log shows no `5xx`.
+- [x] A team can be created, a member added, a task created and assigned.
+- [x] The filters by team, assignee, status and search term work.
+- [x] A request to a protected route without the cookie answers `401`.
+- [x] The browser console shows no error, and the API log shows no `5xx`.
 - [ ] The repository URL opens and the README setup steps work on a clean
       checkout (`npm ci` in `client` and `server`, `npm run migrate`, `npm run dev`).
 
@@ -51,8 +62,8 @@ Hello,
 
 I have completed the Team Task Manager assessment.
 
-Deployed application: REPLACE_WITH_VERIFIED_DEPLOYED_URL
-API (for verification): REPLACE_WITH_VERIFIED_API_URL
+Deployed application: https://glacier-team-task-manager.web.app
+API (for verification): https://standings-exit-trainer-terminal.trycloudflare.com/api
 GitHub repository: https://github.com/SrRecode/team-task-manager
 
 The repository contains the React + Tailwind + Vite frontend, the Node.js +
@@ -71,8 +82,8 @@ Thank you for the opportunity.
   the setup instructions and the branch/PR history. It is already public and
   reachable at the address above.
 - The **deployed** link is the deliverable of REQ-26: a public frontend on
-  Firebase Hosting, an API on Cloud Run and a PostgreSQL database on Cloud SQL,
-  reachable over HTTPS with a working session cookie.
+  Firebase Hosting, an API with a PostgreSQL database behind it, reachable over
+  HTTPS with a working session cookie.
 
 Both are linked from the README, so the evaluator can navigate from the
 repository to the running application and back.

@@ -10,6 +10,11 @@ Browser → https://PROJECT_ID.web.app        (Firebase Hosting, the client)
         → Cloud SQL for PostgreSQL           (private, no public IP)
 ```
 
+That topology needs a billing account. The deployment that is **live today**
+uses the same client, the same API and the same PostgreSQL schema, but the API
+runs in the local stack of the developer machine and is published through a
+Cloudflare quick tunnel — see § 0.0.
+
 Every command is written for PowerShell on Windows. The `gcloud` commands are
 identical on macOS and Linux; on a POSIX shell use `export VAR=value` instead
 of `$env:VAR=value`.
@@ -94,6 +99,10 @@ project the deployment can use.
 | `gcloud sql instances create glacier-db --tier=db-dev-small` | `Invalid Tier (db-dev-small) for (ENTERPRISE) Edition` (the tier no longer exists in the Cloud SQL API) |
 | `gcloud services enable cloudbuild artifactregistry secretmanager` | `Permission denied to enable service` (`serviceusage.services.enable` is not granted) |
 
+The error above was reproduced on 21 October 2026 with a probe deployment
+(`gcloud run deploy glacier-api-probe --image=gcr.io/cloudrun/hello`), so it is
+not a side effect of the image.
+
 The account only holds the three organisation roles `runSaasUserFreeTier`,
 `cloudSqlUserFreeTier` and `firebaseUserFreeTier` of the organisation
 `71994629047`. They do not contain `run.services.create`, and the
@@ -115,9 +124,9 @@ frontend of the project is live on
 ### The one action that unblocks the whole deployment
 
 Link a billing account to `glacier-team-task-manager`. Everything else is
-already in place: the account is the owner of the project, so it may enable
-the APIs, create the Artifact Registry repository, the Cloud SQL instance and
-the Cloud Run service.
+already in place: the account is the owner of the project, so it may enable the
+APIs, create the Artifact Registry repository, the Cloud SQL instance and the
+Cloud Run service.
 
 <https://console.cloud.google.com/billing/linkedaccount?project=glacier-team-task-manager>
 
@@ -126,6 +135,100 @@ After that, one command deploys the API, the database and the client:
 ```powershell
 .\deploy\deploy.ps1 -ProjectId glacier-team-task-manager -Region asia-south1
 ```
+
+### The blocker that is not about the permissions: Hosting is not a proxy
+
+Firebase Hosting **cannot** forward a request to an arbitrary external URL.
+The `destination` of a rewrite "must be a file that you deployed to Firebase
+Hosting"; the only supported backends are a Cloud Function and a Cloud Run
+container of the same project
+(<https://firebase.google.com/docs/hosting/full-config#rewrites>).
+
+That was measured on the live site on 21 October 2026. The rewrite
+`/api/** → https://<host>/api/**` was deployed, and the Hosting edge answered
+every `/api/**` request with its own 404 page (21 376 bytes,
+`Cache-Control: max-age=3600`) instead of contacting the destination:
+
+| Destination of the rewrite | Result |
+|---|---|
+| `https://<quick-tunnel>.trycloudflare.com/api/**` | Hosting 404, the tunnel logged no request |
+| `https://example.com/**` | Hosting 404 |
+| `https://httpbin.org/anything/**` | Hosting 404 |
+
+The deployed version of the site confirms that the rewrite was stored
+(`GET https://firebasehosting.googleapis.com/v1beta1/projects/glacier-team-task-manager/sites/glacier-team-task-manager/versions`
+lists the rewrite in `config.rewrites`), so the rule is present and is not
+applied. The same-origin topology of the diagram above is only possible with
+the Cloud Run rewrite of Hosting, which needs the billing account of blocker 1
+and 2.
+
+**Consequence for the deployment that is live today:** the client calls the API
+cross-origin, on the address of the API. The session cookie is therefore
+`SameSite=None; Secure; HttpOnly`, and the API allows the origin of the
+frontend in `CLIENT_ORIGIN`.
+
+### The deployment that is live today
+
+Verified on 21 October 2026. The client is on Firebase Hosting, the API and the
+database run in the local stack of the developer machine, and the API is
+published through a Cloudflare quick tunnel.
+
+```text
+Browser → https://glacier-team-task-manager.web.app   (Firebase Hosting)
+        → https://<tunnel>.trycloudflare.com/api        (Cloudflare quick tunnel)
+        → http://127.0.0.1:5000                         (Express API, local)
+        → postgresql://…@localhost:5432/glacier_tasks   (PostgreSQL 18, local)
+```
+
+| Part | Where it runs | Verified |
+|---|---|---|
+| Client | Firebase Hosting, project `glacier-team-task-manager` | <https://glacier-team-task-manager.web.app> |
+| API | local `server/src/server.js`, `NODE_ENV=production` | <https://standings-exit-trainer-terminal.trycloudflare.com/api> |
+| Database | local PostgreSQL 18, database `glacier_tasks` | `/health?database=true` answers `{"status":"ok","database":"up"}` |
+| Sessions | PostgreSQL, table `session` | 25 rows after the live test |
+
+The commands are in § 0.2. The limitation of this topology: the address of a
+quick tunnel changes with every restart of `cloudflared`, so the client has to
+be built and deployed again afterwards. The public URL of the application
+stays the same, but the API address in the browser bundle changes.
+
+### 0.2 How the live deployment was made
+
+```powershell
+# 1. The API in the local stack, in production mode
+cd server
+$env:NODE_ENV = 'production'
+$env:PORT = '5000'
+$env:SESSION_SAME_SITE = 'none'          # the client is on another origin
+$env:CLIENT_ORIGIN = 'https://glacier-team-task-manager.web.app'
+$env:DATABASE_SSL = 'false'              # local PostgreSQL, no TLS
+node src/server.js
+
+# 2. The API in the public internet, in a second terminal
+cloudflared tunnel --no-autoupdate --url http://127.0.0.1:5000
+# the line "Your quick Tunnel has been created!" holds the public address
+
+# 3. The client, built with the address of the API and deployed with ADC
+cd client
+$env:VITE_API_URL = 'https://<tunnel>.trycloudflare.com/api'
+$env:GOOGLE_APPLICATION_CREDENTIALS = "$env:APPDATA\gcloud\application_default_credentials.json"
+npm run build
+firebase deploy --only hosting --project glacier-team-task-manager --non-interactive
+```
+
+`cloudflared` is not installed on Windows by default; the binary was downloaded
+from <https://github.com/cloudflare/cloudflared/releases>. The Firebase CLI
+reads the Application Default Credentials of `gcloud` on its own, so
+`firebase login` is not needed:
+
+```powershell
+gcloud auth application-default login     # writes application_default_credentials.json
+gcloud auth application-default print-access-token   # proves that it works
+```
+
+The file is an `authorized_user` credential, which `firebase-tools` picks up
+through `google-auth-library`. The deployment of the client was done with the
+ADC only, no browser session.
 
 ---
 
@@ -319,8 +422,16 @@ curl "$ApiUrl/health?database=true"      # {"status":"ok","database":"up"}
 
 ```powershell
 npm install -g firebase-tools
-firebase login
-firebase use --add                        # choose PROJECT_ID
+gcloud auth application-default login        # the credentials the CLI reads
+gcloud auth application-default print-access-token
+```
+
+The Firebase CLI reads the Application Default Credentials of `gcloud`, so
+`firebase login` is not needed and no browser session is opened. To make it
+explicit, the path of the credential file can be set:
+
+```powershell
+$env:GOOGLE_APPLICATION_CREDENTIALS = "$env:APPDATA\gcloud\application_default_credentials.json"
 ```
 
 Build the client with the URL of the live API. `VITE_API_URL` is baked into the
@@ -330,12 +441,28 @@ browser bundle, so it has to be set **before** the build:
 cd client
 $env:VITE_API_URL = "https://glacier-api-xxxx-uc.a.run.app/api"
 npm run build
-firebase deploy --only hosting
+firebase deploy --only hosting --project PROJECT_ID --non-interactive
 ```
 
 The site is served from `https://PROJECT_ID.web.app`. `client/firebase.json`
 rewrites every path to `index.html`, so the client-side routes work on a
 refresh.
+
+**The API is called on its own address, not on `/api` of the site.** Firebase
+Hosting does not proxy to an arbitrary external URL (§ 0.0), so the rewrite to
+an external backend is not an option. The client therefore uses the address of
+the API, and the API has to allow the origin of the frontend:
+
+| Setting | Value |
+|---|---|
+| `VITE_API_URL` | the public address of the API, with the `/api` prefix |
+| `CLIENT_ORIGIN` | the exact origin of the frontend, e.g. `https://PROJECT_ID.web.app` |
+| `SESSION_SAME_SITE` | `none`, because the two origins are different sites |
+| `NODE_ENV` | `production`, so the cookie is `Secure` |
+
+The alternative is the Cloud Run rewrite of Hosting, which keeps the API on the
+same origin and the cookie a first-party cookie. It needs a Cloud Run service
+in the project, and that needs the billing account of § 0.0.
 
 ## 11. The live smoke test
 
@@ -361,6 +488,27 @@ Check the cookie in the browser developer tools (Application → Cookies):
 cookie is missing in the developer tools, check the `Set-Cookie` header of the
 login response first.
 
+### The result of 21 October 2026
+
+The whole list was run against the live deployment, once with an API script
+and once in a real browser (Chrome, headless). The steps and the raw results
+are in `docs/TESTING.md` § "The live run of 21 October 2026".
+
+| Step | Result |
+|---|---|
+| The frontend opens | 200, the sign-in screen |
+| Register | 201, the session cookie is set |
+| The cookie flags | `HttpOnly`, `Secure`, `SameSite=None`, `Path=/` |
+| Sign out | 204, the protected routes answer with 401 afterwards |
+| Sign in | 200, the session is restored |
+| Create a team, add a member | 201 and 201, the team has 2 members |
+| Create a task, assign it | 201, the task shows the assignee |
+| Filter by team, assignee, status, search | 1, 1, 0 for another status, 1 and 0 for a term that does not match |
+| Update the task | 200, the new status is shown |
+| Sign out | 204, `/teams` redirects to the sign-in screen |
+| The database | `/health?database=true` answers `{"status":"ok","database":"up"}` |
+| The sessions | 25 rows in the `session` table of PostgreSQL |
+
 ## 12. Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -371,12 +519,17 @@ login response first.
 | `503 {"database":"down"}` | the API cannot reach Cloud SQL | check the sidecar logs, the service account role and the instance connection name |
 | The migrations fail to connect | the Cloud SQL instance has no public IP and no proxy is running | start the Cloud SQL Auth Proxy locally |
 | The client calls the wrong API | `VITE_API_URL` was not set before the build | rebuild with the variable set |
+| Every `/api/**` request answers with the 404 page of Hosting | a rewrite to an external URL is not applied, Hosting is not a proxy | call the API on its own address, see § 0.0 and § 10 |
+| The API answers with `530 Error 1033` | the quick tunnel is not running | start `cloudflared` again, then rebuild and redeploy the client with the new address |
+| The browser shows the sign-in screen although the sign-in was successful | the browser refused the third-party cookie | allow third-party cookies for the site, or deploy the API on the same origin |
 
 ## 13. After the assessment
 
 - Delete the Cloud SQL instance: `gcloud sql instances delete glacier-db`.
 - Delete the secrets and the Artifact Registry repository.
 - Delete the Firebase Hosting site.
+- Stop the quick tunnel and the local API, and remove the tunnel address from
+  the README, or keep it if the stack is still running.
 - Remove the deployed URL from the README, or keep it if the site is still up.
 
 ## 14. What the deployment costs

@@ -114,6 +114,74 @@ The automated suites cover the same flows on the server:
 `npm test` in `server` runs 90 tests (`auth`, `teams`, `tasks`, `invites`,
 `reminders`).
 
+### The live run of 21 October 2026
+
+The same workflow was run against the **deployed** application,
+<https://glacier-team-task-manager.web.app>, twice: once with an API script
+against the public address of the API, once in a real browser (Chrome, headless)
+against the deployed URL. The API was the local server in production mode, with
+the PostgreSQL database `glacier_tasks` behind it, published through a
+Cloudflare quick tunnel; the reason is in
+[DEPLOYMENT_RUNBOOK.md](DEPLOYMENT_RUNBOOK.md) § 0.0.
+
+The API script (`server/scripts/smoke-live.js`) makes every request with the
+`Origin` of the deployed frontend and keeps the session cookie of the answer.
+Its result:
+
+```text
+[PASS] deployed frontend responds with HTML :: status=200
+[PASS] register owner :: status=201
+[PASS] register member :: status=201
+[PASS] session cookie is HttpOnly
+[PASS] session cookie is Secure
+[PASS] session cookie is SameSite=None
+[PASS] logout :: status=204
+[PASS] protected route is 401 after logout :: status=401
+[PASS] login :: status=200
+[PASS] session restored after login :: status=200
+[PASS] create team :: status=201
+[PASS] add member to team :: status=201
+[PASS] team has 2 members :: count=2
+[PASS] create task assigned to member :: status=201
+[PASS] filter by team :: count=1
+[PASS] filter by assignee :: count=1
+[PASS] filter by status :: count=1
+[PASS] filter by search term :: count=1
+[PASS] filter by other assignee is empty :: count=0
+[PASS] update task :: status=200
+[PASS] member sees the task :: count=1
+[PASS] logout again :: status=204
+[PASS] protected route is 401 after the final logout :: status=401
+[PASS] health route reports the database up :: status=200 body={"status":"ok","database":"up"}
+
+SMOKE TEST PASSED
+```
+
+The browser run, against the deployed URL:
+
+| Step | Result |
+|---|---|
+| The deployed site opens | the sign-in screen, the console holds only the `401` of the session probe |
+| Register `browser.smoke.1792598600@example.com` | the dashboard opens, the name is in the header |
+| The cookie of the browser | `glacier.sid` on the API origin, `HttpOnly`, `Secure`, `SameSite=None` |
+| Create the team `Browser Smoke Team` | the creator is the owner, the member list is shown |
+| Create the task `Deployed smoke task` | team, assignee, status and due date are shown |
+| Filter by team and by assignee | the task stays in the list |
+| Filter by status `In progress` | the list is empty, the notice "No task matches these filters" appears |
+| Filter by status `To do` | the task is listed again |
+| Filter by the search term `Deployed` | the task is listed, `zzz-no-match` empties the list |
+| Edit the task, status `In progress` | the change is saved and shown |
+| Sign out | the cookie of the API origin is deleted, `/teams` redirects to the sign-in screen |
+| Sign in again | the team and the task are restored from the session |
+
+The sessions of the live run are in the `session` table of PostgreSQL (25 rows
+after the run), so the session store of the deployment is the PostgreSQL one.
+
+The limits of this topology: the address of the API is the address of a quick
+tunnel and changes when the tunnel is restarted, and the client and the API are
+on different origins, so the session cookie is a third-party cookie. A browser
+that blocks third-party cookies has to allow them for the site.
+
 ## 5. Before each PR
 
 ```powershell

@@ -19,16 +19,34 @@ merged through a pull request. The status below reflects what is merged into
       (BONUS-02), email invitation stub (BONUS-03)
 - [x] GitHub feature branches and PR history present
 - [x] Frontend deployed on GCP (Firebase Hosting) — <https://glacier-team-task-manager.web.app>
-- [ ] API and database deployed on GCP — blocked by the permissions of the
-      assessment account, see [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md)
-- [ ] Submission links ready — the repository link is verified, the deployed URL
-      follows the deployment
+- [x] Live smoke test against the deployed URL — registration, sign in, team,
+      task, filters and sign out, in a real browser and with an API script
+- [x] API and PostgreSQL reachable from the deployed app — the API runs in the
+      local stack and is published through a Cloudflare quick tunnel, see
+      [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0
+- [ ] API and database deployed on **GCP** (Cloud Run + Cloud SQL) — blocked by
+      the permissions and the missing billing account of the assessment
+      account, see [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0
+- [x] Submission links ready
 
-The deployment of the API and of the Cloud SQL database is the only open item.
-The account of the assessment may not create a Cloud Run service and may not
-create a Cloud SQL instance in the free tier project, and the project it owns
-has no billing account. The findings and the single action that unblocks the
-deployment are in [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0.
+### The links
+
+| Link | Address |
+|---|---|
+| Deployed application | <https://glacier-team-task-manager.web.app> |
+| API (for verification) | <https://standings-exit-trainer-terminal.trycloudflare.com/api> |
+| GitHub repository | <https://github.com/SrRecode/team-task-manager> |
+
+The API address is the address of a Cloudflare quick tunnel: it is the
+published address of the local API of the developer machine. It changes with
+every restart of the tunnel, and the client has to be built and deployed again
+afterwards. The public address of the application does not change.
+
+The deployment of the API and of the Cloud SQL database **on GCP** is the only
+open item. The account of the assessment may not create a Cloud Run service and
+may not create a Cloud SQL instance in the free tier project, and the project it
+owns has no billing account. The findings and the single action that unblocks
+the deployment are in [the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0.
 The deployment itself is one command:
 
 ```powershell
@@ -219,23 +237,50 @@ packaged by `server/Dockerfile`.
 The project needs a billing account, and the account needs the permission to
 create the billable resources.
 
-The frontend of this project is already deployed on Firebase Hosting:
-<https://glacier-team-task-manager.web.app>. It calls the API on its own
-origin (`/api`), and Firebase Hosting forwards the calls to the Cloud Run
-service, so the session cookie stays a first-party cookie. The API and the
-Cloud SQL database are the part that is still missing; the exact blocker and
-the single action that solves it are in
-[the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0.
+The frontend of this project is deployed on Firebase Hosting:
+<https://glacier-team-task-manager.web.app>. It was deployed with the
+Application Default Credentials of `gcloud`, without a browser session:
+
+```powershell
+cd client
+$env:VITE_API_URL = "https://<the address of the API>/api"
+$env:GOOGLE_APPLICATION_CREDENTIALS = "$env:APPDATA\gcloud\application_default_credentials.json"
+npm run build
+firebase deploy --only hosting --project glacier-team-task-manager --non-interactive
+```
+
+The API is **not** on the same origin as the client. Firebase Hosting cannot
+forward a request to an arbitrary external URL — only to a Cloud Function or a
+Cloud Run container of the same project — so the client calls the API on its
+own address, and the API allows the origin of the frontend in `CLIENT_ORIGIN`.
+The session cookie is therefore `SameSite=None; Secure; HttpOnly`.
+
+The API and the PostgreSQL database run in the local stack of the developer
+machine and are published through a Cloudflare quick tunnel, because Cloud Run
+and Cloud SQL need a billing account that the assessment account does not have.
+The exact commands, the verified results and the blockers are in
+[the deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) § 0.0 and § 0.2.
 
 The assessment requires a deployed version on GCP. Verify current pricing and
 billing requirements before creating resources; GCP services may incur charges.
 
 ## Submission
 
-When complete, submit through Indeed:
-- Deployed application URL — `REPLACE_WITH_VERIFIED_DEPLOYED_URL`
-- API URL — `REPLACE_WITH_VERIFIED_API_URL`
-- GitHub repository URL — https://github.com/SrRecode/team-task-manager
+Send these two links through Indeed:
+
+- Deployed application URL — <https://glacier-team-task-manager.web.app>
+- API URL — <https://standings-exit-trainer-terminal.trycloudflare.com/api>
+- GitHub repository URL — <https://github.com/SrRecode/team-task-manager>
+
+The deployed application was verified on 21 October 2026: a fresh account
+registers, signs in, creates a team and a task, filters the tasks and signs out
+again, in a real browser and with an API script. The step by step result is in
+[docs/TESTING.md](docs/TESTING.md) § "The live run of 21 October 2026".
+
+The API URL is the published address of the local API of the developer
+machine. It is stable while the tunnel runs, and it changes when the tunnel is
+restarted. The application URL is the address of the deployed client and stays
+the same.
 
 The ready-to-send message and the pre-send checklist are in
 [docs/SUBMISSION_MESSAGE.md](docs/SUBMISSION_MESSAGE.md). Do not submit
