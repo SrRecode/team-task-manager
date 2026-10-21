@@ -33,6 +33,14 @@
 .PARAMETER SkipClient
   Only deploy the API, not the frontend.
 
+.PARAMETER Tier
+  The machine type of the Cloud SQL instance. The default is the smallest
+  shared core shape, which is the cheapest one that Google Cloud offers.
+
+.PARAMETER AvailabilityType
+  ZONAL (the default) is cheaper than REGIONAL and is enough for an
+  assessment.
+
 .EXAMPLE
   .\deploy.ps1 -Check
   .\deploy.ps1 -ProjectId my-project -Region asia-south1
@@ -48,6 +56,8 @@ param(
   [string]$AppUser = 'glacier_app',
   [string]$SecretName = 'glacier-api-secrets',
   [string]$ServiceAccount = 'glacier-run',
+  [string]$Tier = 'db-f1-micro',
+  [string]$AvailabilityType = 'ZONAL',
   [switch]$Check,
   [switch]$SkipClient
 )
@@ -89,14 +99,30 @@ function Get-Gcloud {
   throw 'The gcloud CLI is not installed. See the runbook, section 0.'
 }
 
+function Invoke-Native {
+  param(
+    [Parameter(Mandatory = $true)][scriptblock]$Command,
+    [string[]]$Arguments = @()
+  )
+
+  # The CLIs write their progress to stderr. Merging it into the output is
+  # useful, but the error records it produces must not stop the script.
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $output = & $Command @Arguments 2>&1
+    $code = $LASTEXITCODE
+    $text = (($output | ForEach-Object { $_.ToString() }) -join "`n").Trim()
+    return [pscustomobject]@{ ExitCode = $code; Output = $text }
+  } finally {
+    $ErrorActionPreference = $previous
+  }
+}
+
 function Invoke-Gcloud {
   param([Parameter(ValueFromRemainingArguments = $true)]$Arguments)
 
-  $output = & $script:Gcloud @Arguments 2>&1
-  $code = $LASTEXITCODE
-  $text = ($output | Out-String).Trim()
-
-  return [pscustomobject]@{ ExitCode = $code; Output = $text }
+  return Invoke-Native -Command { & $script:Gcloud @Arguments } -Arguments $Arguments
 }
 
 function Invoke-Firebase {
@@ -107,11 +133,7 @@ function Invoke-Firebase {
     return [pscustomobject]@{ ExitCode = 1; Output = 'The Firebase CLI is not installed. Run "npm install -g firebase-tools".' }
   }
 
-  $output = & $firebase.Source @Arguments 2>&1
-  $code = $LASTEXITCODE
-  $text = ($output | Out-String).Trim()
-
-  return [pscustomobject]@{ ExitCode = $code; Output = $text }
+  return Invoke-Native -Command { & $firebase.Source @Arguments } -Arguments $Arguments
 }
 
 function Test-ApiEnabled {
@@ -288,7 +310,7 @@ if (-not $instanceExists) {
   # tries the small shapes first, because the free tier of the organisation is
   # usually the smallest one.
   $attempts = @(
-    @{ Tier = 'db-f1-micro'; Cpu = $null; Memory = $null },
+    @{ Tier = $Tier; Cpu = $null; Memory = $null },
     @{ Tier = 'db-g1-small'; Cpu = $null; Memory = $null },
     @{ Tier = 'db-custom-1-3840'; Cpu = $null; Memory = $null }
   )
@@ -297,7 +319,7 @@ if (-not $instanceExists) {
   foreach ($attempt in $attempts) {
     $result = Invoke-Gcloud 'sql' 'instances' 'create' $InstanceId `
       --database-version=POSTGRES_16 --tier=$($attempt.Tier) --region=$Region `
-      --availability-type=REGIONAL --edition=ENTERPRISE `
+      --availability-type=$AvailabilityType --edition=ENTERPRISE `
       @flags --project $ProjectId --quiet
 
     if ($result.ExitCode -eq 0) {
