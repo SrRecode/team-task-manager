@@ -13,6 +13,8 @@ This repository is a project blueprint and implementation guide. Update the stat
 - [x] PostgreSQL schema and migrations applied
 - [x] Authentication and authorization tested
 - [x] Team and task workflows tested
+- [x] Due-date reminders (BONUS-01) implemented and tested
+- [x] Email invitation stub (BONUS-03) implemented and tested
 - [x] GitHub feature branches and PR history present
 - [ ] GCP deployment verified
 - [ ] Submission links ready
@@ -94,7 +96,7 @@ session secret with `node -e "console.log(require('crypto').randomBytes(48).toSt
 
 ```powershell
 cd server
-npm test         # 70 tests: auth, teams and tasks, against a separate test database
+npm test         # 90 tests: auth, teams, tasks, invitations and reminders, against a separate test database
 
 cd ..\client
 npm run lint
@@ -119,6 +121,33 @@ used for anything else. Set `TEST_DATABASE_NAME` to use a different name.
 3. Create a task in the team, assign it to a member and change its status.
 4. Filter the tasks by team, assignee, status and search term.
 5. Sign out and confirm that the protected API routes answer with 401.
+
+## Bonus features
+
+Two of the optional requirements are implemented on top of the milestones.
+
+### BONUS-01: due-date reminders
+
+`GET /api/reminders` returns the tasks of the signed in user that are assigned
+to them, are not finished and have a due date, grouped into `overdue`, `today`
+and `upcoming` (the next 7 days). The dashboard shows the groups in a
+**Reminders** panel, so the reminder is visible right after the sign in. The
+groups are calculated by the database (`CURRENT_DATE`), so the server and the
+database always agree on what "today" is. No email is sent: the assessment
+does not require a mail server.
+
+### BONUS-03: invitation stub
+
+`POST /api/teams/:teamId/invites` records an invitation for an email address
+that does not have to be registered yet. The response says so explicitly
+(`delivery: "stub"`, `notificationSent: false`), because the invitation is a
+row in the database instead of a sent email. The pending invitations are
+listed in the team panel, and the owner can revoke one.
+
+The invitation is not a dead record: when the invited address registers an
+account or signs in, the invitation is turned into a real membership in the
+same transaction, and the app shows a notice that the new team was joined
+because of the invitation.
 
 ## Core user flows
 

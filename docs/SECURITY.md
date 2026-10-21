@@ -70,6 +70,8 @@ The policy that is implemented:
 - The assignee of a task must be a member of the same team. The check runs in the task service and is enforced a second time by the `fk_task_assignee_is_team_member` constraint.
 - A member of a team cannot leave the team by removing themselves from the owner role, and the owner cannot leave their own team: a team without an owner could never be managed or deleted again.
 - A task of a team the caller does not belong to is reported as 404, so its existence stays concealed. A member who may see the task but not change it gets 403.
+- Only the owner of a team may record or revoke an invitation, and only the owner may read the addresses that are already members of the team. The invitation route never reveals whether an address has an account: it accepts any valid address, because that is the point of an invitation.
+- An invitation is not a session grant. It only creates a membership, and only for the address it was recorded for, when that address registers or signs in.
 
 Never rely on hiding a button as access control.
 

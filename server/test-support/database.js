@@ -46,7 +46,7 @@ async function prepareDatabase() {
     prepared = true;
   }
 
-  await query('TRUNCATE tasks, team_members, teams, users RESTART IDENTITY CASCADE');
+  await query('TRUNCATE tasks, team_members, teams, team_invites, users RESTART IDENTITY CASCADE');
   await query('TRUNCATE session');
 }
 

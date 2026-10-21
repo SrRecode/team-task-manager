@@ -36,6 +36,13 @@ Use tools already configured in the repository where possible. Do not add a larg
 | Task | Invalid status | 400 |
 | Task | Update/delete without permission | Denied |
 | Filter | Team and assignee filters together | Correct accessible subset |
+| Reminder | Task of the user is due today | Listed in the `today` group of the dashboard |
+| Reminder | Task is finished or has no due date | Not a reminder |
+| Reminder | Task of somebody else | Not a reminder |
+| Invitation | Owner invites an unregistered address | 201 and a pending invitation, labelled as a stub |
+| Invitation | Member tries to invite | Denied |
+| Invitation | The invited address registers | The user becomes a member of the team |
+| Invitation | The same address is invited twice | Conflict |
 | SQL safety | Malicious-looking input | Treated as data, not SQL |
 | Frontend | API fails | Clear error state |
 | Frontend | No tasks | Useful empty state |
@@ -56,6 +63,29 @@ Use at least two test users:
 9. Test edits, status updates and authorized deletion.
 10. Log out and verify protected requests fail.
 11. Repeat the main flow against the deployed URL.
+
+### Bonus flows
+
+Reminders (BONUS-01):
+
+1. Sign in as User A, who has a task with a due date of today and one that is
+   overdue.
+2. Open the dashboard: both tasks are listed in the **Reminders** panel, in the
+   `Due today` and `Overdue` groups.
+3. Change the status of a task to `done` and confirm that it disappears from
+   the panel.
+
+Invitations (BONUS-03):
+
+1. Sign in as User A, open Team A and record an invitation for an address that
+   has no account.
+2. Confirm that the invitation is listed as pending and that the notice says
+   that no email was sent.
+3. Register an account with that address: the user is a member of Team A and
+   the app shows the notice that the team was joined because of the
+   invitation.
+4. Sign in as a member of Team A and confirm that recording an invitation is
+   not possible.
 
 Do not use real personal data or production credentials in test fixtures.
 
