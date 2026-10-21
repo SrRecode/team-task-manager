@@ -1,5 +1,47 @@
 # Project Plan and 72-Hour Delivery Strategy
 
+## Current status (updated 2026-10-21)
+
+**Branch:** `feat/foundation-auth` (implementation), `docs/assessment-plan` (this documentation set)
+**Milestone completed:** M0 (audit) and M1 (secure foundation + authentication)
+
+### Done and verified
+
+- **M0 - Audit.** `docs/AUDIT_REPORT.md` records the state of the starting point with the
+  evidence for every finding. The backend was two 0-byte files, the frontend rendered an
+  empty page, and `passwort` (SHA1) was installed in place of `passport`.
+- **M1 - Foundation and auth.** A real Express application with Passport local strategy,
+  bcrypt password hashing, PostgreSQL-backed sessions, server side validation, a CSRF
+  origin check and a working React sign in / sign up flow.
+- `server/package.json` no longer contains `passwort`, `i` or `npm`. 141 packages, 0 vulnerabilities.
+- PostgreSQL schema and an ordered migration runner, with the assignee invariant enforced by a
+  composite foreign key.
+- 24 automated tests, all passing: `cd server && npm test`.
+- `cd client && npm run lint` exits 0 and `cd client && npm run build` succeeds.
+- Verified by hand in a browser: register, sign in, session survives a page reload, sign out,
+  and the protected route redirects an unauthenticated visitor to the sign in screen.
+
+### Current test results
+
+| Command | Result |
+|---|---|
+| `cd server && npm test` | 24 passed, 0 failed |
+| `cd client && npm run lint` | exit 0, no problems |
+| `cd client && npm run build` | exit 0, 34 modules transformed |
+| `cd server && npm run migrate` | 1 migration applied, idempotent on re-run |
+
+### Blockers
+
+- The GitHub CLI is installed but still needs `gh auth login` before pull requests can be opened.
+- GCP deployment is not started. No Cloud SQL instance, no Cloud Run service, no hosting
+  configuration exists yet.
+
+### Next action
+
+**M2 - Teams.** Create, list, get, update and delete teams, add and remove members, and enforce
+owner and member permissions on the server. This is the next smallest vertical slice, and it
+unblocks REQ-02, REQ-03 and the role checks that REQ-21 depends on.
+
 ## Objective
 
 Deliver a working, secure Team Task Manager that meets the mandatory requirements in `ASSESSMENT_REQUIREMENTS.md`. Prioritize functionality, correctness, readable code, and deployment over optional polish.

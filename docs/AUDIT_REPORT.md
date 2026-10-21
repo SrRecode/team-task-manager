@@ -8,6 +8,44 @@
 
 ---
 
+## Status addendum (2026-10-21, after the M1 milestone)
+
+**This section supersedes the scoreboard in §10 for the requirements it lists.** The audit below
+is kept as written, so the starting point stays on record.
+
+| ID | Was | Now | Evidence |
+|---|---|---|---|
+| REQ-01 | MISSING | **VERIFIED** | `server/src/modules/auth/` — register/login/logout/me; 24 passing tests |
+| REQ-07 | MISSING | **VERIFIED** | `client/src/pages/AuthPages.jsx`; verified in a browser |
+| REQ-12 | BROKEN | **VERIFIED** | `server/src/app.js` + `server/src/server.js`; `npm start` listens on `PORT` |
+| REQ-14 | MISSING | **PARTIAL** | `express-validator` is wired into the auth routes; teams and tasks are not built yet |
+| REQ-15 | MISSING | **VERIFIED** | `server/src/config/passport.js` — Local Strategy, regenerate on login |
+| REQ-16 | MISSING | **VERIFIED** | `server/src/config/session.js` — `connect-pg-simple`; in-memory is a dev-only fallback |
+| REQ-17 | MISSING | **VERIFIED** | `httpOnly`, `SameSite=Lax`, `secure` in production; confirmed `HttpOnly` in the `Set-Cookie` header |
+| REQ-18 | MISSING | **VERIFIED** | `server/src/middleware/requireAuth.js` on every non-auth route |
+| REQ-21 | MISSING | **PARTIAL** | `requireAuth` exists and is tested; resource level checks come with teams and tasks |
+| REQ-22 | MISSING | **PARTIAL** | Validation and parameterised SQL are in place; the remaining routes do not exist yet |
+| REQ-23 | BROKEN | **VERIFIED** | `bcrypt` at cost 12; a test asserts the stored value is a bcrypt hash, not the plain text |
+| REQ-24 | BROKEN | **PARTIAL** | The frontend and backend both run and talk to each other; the team and task features are still missing |
+| REQ-25 | PARTIAL | **VERIFIED** | `server/.env.example`, `client/.env.example`, `npm run migrate`, `npm start`, `npm test` all documented and run |
+| REQ-20 | PARTIAL | **PARTIAL** | Two real feature branches and real commits now exist; the pull requests still need `gh auth login` |
+| REQ-26 | MISSING | MISSING | Unchanged. GCP deployment has not started |
+| REQ-06 | VERIFIED | **VERIFIED** | Still passing, now with the Tailwind v4 theme applied |
+
+Unchanged and still outstanding: REQ-02, REQ-03, REQ-04, REQ-05, REQ-08, REQ-09, REQ-10, REQ-11,
+REQ-19, REQ-27, BONUS-01, BONUS-02, BONUS-03.
+
+The findings in §4 and §5 that concerned the missing backend, the `passwort` dependency, the
+absent tests and the absent deployment artifacts are addressed as follows: the dependency is
+removed, the backend exists, the test suite is in place, and the deployment artifacts are
+scheduled for M5.
+
+**Corrected during the audit:** §8 previously described the uncommitted client work as a
+downgrade of the scaffold. It is the opposite — it is a complete and verified Tailwind v4 setup.
+See §5.5.
+
+---
+
 ## 0. Headline finding
 
 **The application is a scaffold, not an implementation.**
