@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AppShell from '../components/layout/AppShell';
+import ReminderPanel from '../components/reminders/ReminderPanel';
 import TaskFilters from '../components/tasks/TaskFilters';
 import TaskList from '../components/tasks/TaskList';
 import TaskModal from '../components/tasks/TaskModal';
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const [actionError, setActionError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
+  const [taskVersion, setTaskVersion] = useState(0);
 
   const { teamId, assigneeId, status, search } = filters;
 
@@ -120,7 +122,7 @@ export default function DashboardPage() {
 
   function handleSaved() {
     closeModal();
-    loadTasks();
+    loadTasks().then(() => setTaskVersion((version) => version + 1));
   }
 
   async function handleDelete(task) {
@@ -128,6 +130,7 @@ export default function DashboardPage() {
     try {
       await tasksApi.remove(task.id);
       await loadTasks();
+      setTaskVersion((version) => version + 1);
     } catch (error) {
       setActionError(error.message);
     }
@@ -172,6 +175,8 @@ export default function DashboardPage() {
           onClear={() => setFilters(EMPTY_FILTERS)}
         />
       </div>
+
+      <ReminderPanel refreshToken={taskVersion} />
 
       {teamsError ? (
         <p role="alert" className="mt-4 text-sm text-coral">
